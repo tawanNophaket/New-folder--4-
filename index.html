@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>LifeOS — Ultimate All-in-One</title>
+    <title>LifeOS — Gamified Second Brain</title>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,6 +20,9 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- Gamification Confetti Overlay -->
+    <div id="confettiOverlay" class="confetti-overlay hidden"></div>
+    
     <svg style="display: none;">
         <filter id="noise">
             <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch" />
@@ -52,6 +55,17 @@
                 </div>
             </div>
             
+            <!-- Gamification EXP Bar & Coin -->
+            <div class="exp-container">
+                <div class="exp-text">
+                    <span>LVL <span id="levelText">1</span> <span id="xpText" class="xp-val">(0/100 XP)</span></span>
+                    <button class="coin-badge haptic" id="btnShop">🪙 <span id="coinText">0</span></button>
+                </div>
+                <div class="exp-bar">
+                    <div class="exp-fill" id="expFill"></div>
+                </div>
+            </div>
+            
             <div id="timelineHeaderExt" class="header-ext">
                 <div class="week-slider" id="weekSlider"></div>
             </div>
@@ -75,14 +89,13 @@
         <!-- View 2: Projects (Kanban) -->
         <main id="view-projects" class="view-section">
             <div class="tasks-container">
-                
-                <!-- Habits Section (Streak System) -->
+                <!-- Habits Section -->
                 <div class="section-heading mb-sm">
                     <div style="display:flex; flex-direction:column;">
                         <h3>Daily Habits 🔥</h3>
                         <span style="font-size:0.75rem; color:var(--text-secondary);">Long-press to edit</span>
                     </div>
-                    <button class="icon-btn-small" id="btnAddHabit"><span class="material-icons-round">add</span></button>
+                    <button class="icon-btn-small glowing haptic" id="btnAddHabit" style="background:var(--brand);"><span class="material-icons-round">add</span></button>
                 </div>
                 <div class="habits-slider" id="habitsContainer">
                     <!-- Habits JS -->
@@ -90,7 +103,7 @@
 
                 <!-- Kanban Board -->
                 <div class="section-heading" style="margin-top: 32px;">
-                    <h3>Kanban Board</h3>
+                    <h3>Smart Board</h3>
                     <span id="taskProgressText" class="task-count">0% Done</span>
                 </div>
                 
@@ -111,7 +124,21 @@
             </div>
         </main>
 
-        <!-- View 3: Finance -->
+        <!-- View 3: Notes (Second Brain) NEW -->
+        <main id="view-notes" class="view-section">
+            <div class="notes-container">
+                <div class="section-heading mb-sm">
+                    <h3>Second Brain 🧠</h3>
+                </div>
+                <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 24px;">Dump your ideas, book summaries, and deep thoughts here.</p>
+                
+                <div id="notesGrid" class="notes-grid">
+                    <!-- Notes Content JS -->
+                </div>
+            </div>
+        </main>
+
+        <!-- View 4: Finance -->
         <main id="view-finance" class="view-section">
             <div class="finance-container">
                 <div class="finance-card glass-panel glowing">
@@ -145,7 +172,7 @@
             </div>
         </main>
 
-        <!-- View 4: Insight & Mood -->
+        <!-- View 5: Insight & Mood -->
         <main id="view-insight" class="view-section">
             <div class="focus-container">
                 <div class="insight-card glass-panel greeting-card">
@@ -173,7 +200,8 @@
                 <div class="journal-history" id="journalHistoryContainer">
                     <!-- Journals JS -->
                 </div>
-
+                
+                <!-- DATA SYSTEM -->
                 <div class="section-heading mt-lg">
                     <h3>Data System</h3>
                 </div>
@@ -196,7 +224,7 @@
             <span class="material-icons-round icon-spin">add</span>
         </button>
 
-        <nav class="bottom-nav glass-panel 4-tabs">
+        <nav class="bottom-nav glass-panel 5-tabs">
             <button class="nav-btn active haptic" data-target="view-timeline">
                 <span class="material-icons-round">calendar_view_day</span>
                 <span>Time</span>
@@ -204,6 +232,10 @@
             <button class="nav-btn haptic" data-target="view-projects">
                 <span class="material-icons-round">view_kanban</span>
                 <span>Projects</span>
+            </button>
+            <button class="nav-btn haptic" data-target="view-notes">
+                <span class="material-icons-round">description</span>
+                <span>Notes</span>
             </button>
             <button class="nav-btn haptic" data-target="view-finance">
                 <span class="material-icons-round">account_balance_wallet</span>
@@ -263,15 +295,28 @@
                     <div class="form-group">
                         <input type="text" id="taskInputTitle" placeholder="e.g. Design homepage..." required>
                     </div>
-                    <div class="form-group" id="taskStatusGroup">
-                        <label>Status</label>
-                        <select id="taskInputStatus" class="custom-select">
-                            <option value="todo">To Do 📋</option>
-                            <option value="doing">Doing ⏳</option>
-                            <option value="done">Done ✅</option>
-                        </select>
+                    <div class="row">
+                        <div class="form-group half" id="taskStatusGroup">
+                            <label>Status</label>
+                            <select id="taskInputStatus" class="custom-select">
+                                <option value="todo">To Do 📋</option>
+                                <option value="doing">Doing ⏳</option>
+                                <option value="done">Done ✅</option>
+                            </select>
+                        </div>
+                        <div class="form-group half">
+                            <label>Priority</label>
+                            <select id="taskInputPriority" class="custom-select">
+                                <option value="high">High 🔥</option>
+                                <option value="med">Medium ⭐</option>
+                                <option value="low">Low ☕</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="form-actions">
+                        <button type="button" id="btnFocusTask" class="btn-focus hidden haptic" title="Start Pomodoro">
+                            <span class="material-icons-round">center_focus_strong</span>
+                        </button>
                         <button type="button" id="btnDeleteTask" class="btn-delete hidden haptic"><span class="material-icons-round">delete</span></button>
                         <button type="submit" class="submit-btn primary glowing haptic">Save Task</button>
                     </div>
@@ -297,6 +342,30 @@
                         <button type="submit" class="submit-btn primary glowing haptic">Save Habit</button>
                     </div>
                     <input type="hidden" id="editingHabitId" value="">
+                </form>
+            </div>
+        </div>
+
+        <!-- Add/Edit Note Modal -->
+        <div id="addNoteSheet" class="bottom-sheet-overlay hidden">
+            <div class="bottom-sheet glass-panel" style="max-height: 90vh;">
+                <div class="sheet-indicator"></div>
+                <div class="sheet-header">
+                    <h3 id="noteModalTitle">Brain Dump</h3>
+                    <button class="icon-btn close-sheet-btn haptic"><span class="material-icons-round">close</span></button>
+                </div>
+                <form id="noteForm" class="sheet-form">
+                    <div class="form-group">
+                        <input type="text" id="noteInputTitle" placeholder="Idea Title..." required style="font-size: 1.2rem; font-weight: 700;">
+                    </div>
+                    <div class="form-group">
+                        <textarea id="noteInputContent" placeholder="Start typing... You can write as long as you want." rows="12" class="gratitude-box" style="resize:vertical;"></textarea>
+                    </div>
+                    <div class="form-actions" style="margin-top: 16px;">
+                        <button type="button" id="btnDeleteNote" class="btn-delete hidden haptic"><span class="material-icons-round">delete</span></button>
+                        <button type="submit" class="submit-btn primary glowing haptic">Save to Brain</button>
+                    </div>
+                    <input type="hidden" id="editingNoteId" value="">
                 </form>
             </div>
         </div>
@@ -331,6 +400,42 @@
                 </form>
             </div>
         </div>
+
+        <!-- Reward Shop Modal (Phase 6) -->
+        <div id="shopSheet" class="bottom-sheet-overlay hidden">
+            <div class="bottom-sheet glass-panel" style="max-height: 90vh;">
+                <div class="sheet-indicator"></div>
+                <div class="sheet-header">
+                    <h3>Reward Shop 🛍️</h3>
+                    <button class="icon-btn close-sheet-btn haptic"><span class="material-icons-round">close</span></button>
+                </div>
+                <div class="shop-balance text-center mb-sm">
+                    <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform:uppercase; letter-spacing:1px;">Your Balance</span>
+                    <div style="font-size: 3rem; font-weight: 800; color: #F59E0B; line-height: 1; text-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);">🪙 <span id="shopCoinText">0</span></div>
+                </div>
+                <p style="font-size:0.8rem; text-align:center; color:var(--text-secondary); margin-bottom:16px;">Spend your hard-earned coins to treat yourself!</p>
+                
+                <div class="shop-grid" id="rewardGrid" style="margin-bottom: 24px; max-height: 300px; overflow-y: auto;">
+                    <!-- Rewards JS -->
+                </div>
+                
+                <hr style="border: none; height: 1px; background: rgba(255,255,255,0.1); margin-bottom: 24px;">
+                <form id="rewardForm" class="sheet-form">
+                    <h4 style="margin-bottom: 12px;">Create Custom Reward</h4>
+                    <div class="row">
+                        <div class="form-group" style="flex:2;">
+                            <input type="text" id="rewardInputName" placeholder="e.g. Eat Shabu 🍲" required>
+                        </div>
+                        <div class="form-group" style="flex:1;">
+                            <input type="number" id="rewardInputCost" placeholder="Cost" min="1" required>
+                        </div>
+                    </div>
+                    <div class="form-actions" style="margin-top: 0;">
+                        <button type="submit" class="submit-btn primary glowing haptic">Add to Shop</button>
+                    </div>
+                </form>
+            </div>
+        </div>
         
     </div>
 
@@ -347,6 +452,13 @@
             </button>
             <h2 id="focusTaskName" class="focus-task-name">Deep Work</h2>
             <div class="focus-phase" id="focusPhaseText">Time to focus</div>
+
+            <div class="ambient-controls" id="ambientDeck">
+                <button class="ambient-btn haptic" data-sound="rain" title="Heavy Rain">🌧️</button>
+                <button class="ambient-btn haptic" data-sound="forest" title="Bonfire Nature">🔥</button>
+                <button class="ambient-btn haptic" data-sound="cafe" title="Battle Cafe">☕</button>
+            </div>
+
             <div class="pomodoro-wrap">
                 <svg class="pomodoro-svg" viewBox="0 0 200 200">
                     <circle class="pomodoro-bg" cx="100" cy="100" r="90"></circle>
