@@ -1,4 +1,4 @@
-const STORAGE_KEYS = { EVENTS: 'lifeos_events', TASKS: 'lifeos_tasks', HABITS: 'lifeos_habits' };
+const STORAGE_KEYS = { EVENTS: 'ul_events', TASKS: 'ul_tasks', HABITS: 'ul_habits', FINANCE: 'ul_finance', JOURNAL: 'ul_journal' };
 const EVENT_COLORS = [
     { id: 'brand', raw: '#8B5CF6' }, { id: 'cyan', raw: '#06B6D4' },
     { id: 'rose', raw: '#F43F5E' }, { id: 'amber', raw: '#F59E0B' },
@@ -8,63 +8,55 @@ const PIXELS_PER_MINUTE = 1;
 
 let state = {
     events: JSON.parse(localStorage.getItem(STORAGE_KEYS.EVENTS)) || [],
-    tasks: JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS)) || [],
-    habits: JSON.parse(localStorage.getItem(STORAGE_KEYS.HABITS)) || [
-        { id: 'h1', title: 'Drink Water', completedDates: [] },
-        { id: 'h2', title: 'Read 10 mins', completedDates: [] }
-    ],
+    tasks: JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS)) || [], // {id, title, status: 'todo'|'doing'|'done'}
+    habits: JSON.parse(localStorage.getItem(STORAGE_KEYS.HABITS)) || [],
+    transactions: JSON.parse(localStorage.getItem(STORAGE_KEYS.FINANCE)) || [], // {id, amount, desc, type, date}
+    journal: JSON.parse(localStorage.getItem(STORAGE_KEYS.JOURNAL)) || [], // {id, date, stars, text}
     selectedColor: EVENT_COLORS[0].id,
     activeTab: 'view-timeline',
     notificationsEnabled: Notification.permission === 'granted'
 };
 
+// Data Migrations
+state.tasks.forEach(t => { if(t.completed !== undefined) { t.status = t.completed ? 'done' : 'todo'; delete t.completed; } });
+
 // ================= HAPTIC AUDIO ================= 
 let audioCtx;
 function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
 function playHaptic(type = 'tick') {
-    if (!audioCtx) return;
-    if (audioCtx.state === 'suspended') audioCtx.resume();
+    if (!audioCtx || audioCtx.state === 'suspended') return;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.connect(gain); gain.connect(audioCtx.destination);
     const now = audioCtx.currentTime;
     if (type === 'tick') {
-        osc.frequency.setValueAtTime(150, now);
-        osc.frequency.exponentialRampToValueAtTime(0.01, now + 0.05);
-        gain.gain.setValueAtTime(0.5, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+        osc.frequency.setValueAtTime(150, now); osc.frequency.exponentialRampToValueAtTime(0.01, now + 0.05);
+        gain.gain.setValueAtTime(0.5, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
         osc.start(now); osc.stop(now + 0.05);
     } else if (type === 'pop') {
-        osc.frequency.setValueAtTime(400, now);
-        osc.frequency.exponentialRampToValueAtTime(800, now + 0.1);
-        gain.gain.setValueAtTime(0.8, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
-        osc.type = 'sine';
-        osc.start(now); osc.stop(now + 0.1);
+        osc.frequency.setValueAtTime(400, now); osc.frequency.exponentialRampToValueAtTime(800, now + 0.1);
+        gain.gain.setValueAtTime(0.8, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+        osc.type = 'sine'; osc.start(now); osc.stop(now + 0.1);
     } else if (type === 'chime') {
-        osc.frequency.setValueAtTime(800, now);
-        osc.frequency.exponentialRampToValueAtTime(400, now + 0.5);
-        gain.gain.setValueAtTime(0.6, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
-        osc.type = 'triangle';
-        osc.start(now); osc.stop(now + 0.5);
+        osc.frequency.setValueAtTime(800, now); osc.frequency.exponentialRampToValueAtTime(400, now + 0.5);
+        gain.gain.setValueAtTime(0.6, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+        osc.type = 'triangle'; osc.start(now); osc.stop(now + 0.5);
     }
 }
 
-// ================= DOM ELEMENTS ================= 
+// ================= DOM ================= 
 const grid = document.getElementById('timelineGrid');
 const eventsContainer = document.getElementById('eventsContainer');
 const timeLine = document.getElementById('currentTimeLine');
+
+// Modals
 const addEventSheet = document.getElementById('addEventSheet');
 const addTaskSheet = document.getElementById('addTaskSheet');
-const eventForm = document.getElementById('eventForm');
-const taskForm = document.getElementById('taskForm');
-const colorPicker = document.querySelector('.color-picker');
-const fabBtn = document.getElementById('fabBtn');
-const headerTitle = document.getElementById('headerTitle');
-const headerSubtitle = document.getElementById('headerSubtitle');
+const addHabitSheet = document.getElementById('addHabitSheet');
+const addFinanceSheet = document.getElementById('addFinanceSheet');
 
-// ================= NOTIFICATIONS ================= 
+const fabBtn = document.getElementById('fabBtn');
+
 document.getElementById('btnNotifications').addEventListener('click', () => {
     initAudio();
     if (Notification.permission === 'default') {
@@ -73,84 +65,67 @@ document.getElementById('btnNotifications').addEventListener('click', () => {
             renderNotificationsIcon();
         });
     } else if (Notification.permission === 'granted') {
-        playHaptic('chime');
-        alert("Alerts are active. You will be notified 5 mins before blocks start.");
+        playHaptic('chime'); alert("Alerts active. You will be notified 5 mins before blocks start.");
     }
 });
 function renderNotificationsIcon() {
     const icon = document.getElementById('iconAlert');
     icon.textContent = state.notificationsEnabled ? 'notifications_active' : 'notifications_off';
-    if(state.notificationsEnabled) icon.classList.add('text-success');
-    else icon.classList.remove('text-success');
+    if(state.notificationsEnabled) icon.classList.add('text-success'); else icon.classList.remove('text-success');
 }
 
-// ================= INITIALIZATION ================= 
+// ================= INIT ================= 
 function init() {
     document.body.addEventListener('click', initAudio, { once: true });
     document.body.addEventListener('touchstart', initAudio, { once: true });
     
-    // Build Timeline grid 0-23
     grid.innerHTML = '';
     for (let i = 0; i < 24; i++) {
         const row = document.createElement('div');
         row.className = 'hour-row';
-        const label = document.createElement('div');
-        label.className = 'time-label';
-        label.textContent = `${i.toString().padStart(2, '0')}:00`;
-        row.appendChild(label);
+        row.innerHTML = `<div class="time-label">${i.toString().padStart(2, '0')}:00</div>`;
         grid.appendChild(row);
     }
 
-    // Interactive BG for adding an event via tap on grid
     const bgClick = document.createElement('div');
     bgClick.className = 'timeline-interactive-bg';
     eventsContainer.parentElement.appendChild(bgClick);
     bgClick.addEventListener('click', (e) => {
-        const rect = bgClick.getBoundingClientRect();
-        const y = e.clientY - rect.top;
+        const y = e.clientY - bgClick.getBoundingClientRect().top;
         const clickedMinutes = Math.floor(y / PIXELS_PER_MINUTE);
         let h = Math.floor(clickedMinutes / 60);
-        let m = clickedMinutes % 60;
-        m = Math.floor(m / 5) * 5; // snap to 5 mins
+        let m = Math.floor((clickedMinutes % 60) / 5) * 5;
         const startStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-        
-        let endM = m + 60; // default 1 hour
-        let endH = h + Math.floor(endM / 60);
-        endM = endM % 60;
+        let endM = m + 60; let endH = h + Math.floor(endM / 60); endM = endM % 60;
         if(endH > 23) { endH = 23; endM = 59; }
         const endStr = `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`;
-
         openEventModal({ title: '', start: startStr, end: endStr, color: EVENT_COLORS[0].id });
     });
 
-    renderColorPicker();
     renderDayStats();
+    renderColorPicker();
     renderEvents();
     renderTasks();
     renderHabits();
+    renderFinance();
+    renderJournal();
     renderNotificationsIcon();
     
     updateCurrentTimeIndicator();
-    setInterval(updateCurrentTimeIndicator, 60000); // Check alarms here
+    setInterval(updateCurrentTimeIndicator, 60000);
 
-    // Listeners for modsls and nav
+    // Navigation and FAB
     fabBtn.addEventListener('click', () => {
         playHaptic('tick');
-        if (state.activeTab === 'view-tasks') {
-            document.getElementById('taskFormMode').value = 'task';
-            document.getElementById('taskModalTitle').textContent = 'New Goal';
-            addTaskSheet.classList.remove('hidden');
-            setTimeout(() => document.getElementById('taskInputTitle').focus(), 300);
-        } else {
-            openEventModal();
-        }
+        if (state.activeTab === 'view-timeline') openEventModal();
+        else if (state.activeTab === 'view-projects') openTaskModal();
+        else if (state.activeTab === 'view-finance') openFinanceModal();
     });
 
     document.querySelectorAll('.close-sheet-btn').forEach(btn => {
          btn.addEventListener('click', () => {
              playHaptic('tick');
-             addEventSheet.classList.add('hidden');
-             addTaskSheet.classList.add('hidden');
+             document.querySelectorAll('.bottom-sheet-overlay').forEach(el => el.classList.add('hidden'));
          });
     });
 
@@ -163,577 +138,472 @@ function init() {
             document.querySelectorAll('.view-section').forEach(s => s.classList.remove('active'));
             document.getElementById(targetId).classList.add('active');
             state.activeTab = targetId;
-            fabBtn.style.transform = targetId === 'view-focus' ? 'scale(0)' : 'scale(1)';
+            fabBtn.style.transform = targetId === 'view-insight' ? 'scale(0)' : 'scale(1)';
             
-            // Layout specific adaptations
             const ext = document.getElementById('timelineHeaderExt');
-            if(targetId === 'view-timeline') ext.classList.remove('collapse');
-            else ext.classList.add('collapse');
+            ext.classList.toggle('collapse', targetId !== 'view-timeline');
         });
     });
 
-    eventForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        playHaptic('pop');
+    // Forms
+    document.getElementById('eventForm').addEventListener('submit', (e) => {
+        e.preventDefault(); playHaptic('pop');
         const id = document.getElementById('editingEventId').value;
-        const newEvent = {
+        const evt = {
             id: id || Date.now().toString(),
             title: document.getElementById('eventTitle').value,
             start: document.getElementById('startTime').value,
             end: document.getElementById('endTime').value,
             color: state.selectedColor
         };
-        
-        if (id) {
-            const idx = state.events.findIndex(ev => ev.id === id);
-            if (idx > -1) state.events[idx] = newEvent;
-        } else {
-            state.events.push(newEvent);
-        }
-        
-        saveData();
-        renderEvents();
-        addEventSheet.classList.add('hidden');
+        if (id) { const idx = state.events.findIndex(x => x.id === id); if (idx > -1) state.events[idx] = evt; } 
+        else state.events.push(evt);
+        saveData(); renderEvents(); addEventSheet.classList.add('hidden');
     });
-
+    
     document.getElementById('btnDeleteEvent').addEventListener('click', () => {
-        playHaptic('tick');
-        const id = document.getElementById('editingEventId').value;
-        state.events = state.events.filter(ev => ev.id !== id);
-        saveData();
-        renderEvents();
-        addEventSheet.classList.add('hidden');
+        state.events = state.events.filter(x => x.id !== document.getElementById('editingEventId').value);
+        saveData(); renderEvents(); addEventSheet.classList.add('hidden'); playHaptic('tick');
     });
 }
 
 function updateCurrentTimeIndicator() {
     const now = new Date();
-    const currentMins = now.getHours() * 60 + now.getMinutes();
-    timeLine.style.top = `${currentMins * PIXELS_PER_MINUTE}px`;
-    timeLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const mins = now.getHours() * 60 + now.getMinutes();
+    timeLine.style.top = `${mins * PIXELS_PER_MINUTE}px`;
+    if(state.activeTab === 'view-timeline') timeLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-    // Web Alarms checking
     if (state.notificationsEnabled && Notification.permission === 'granted') {
-        const hh = now.getHours().toString().padStart(2, '0');
-        const mm = now.getMinutes().toString().padStart(2, '0');
-        const nowStr = `${hh}:${mm}`;
-        
-        // Target time 5 mins from now
+        const nowStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
         const t5 = new Date(now.getTime() + 5 * 60000);
         const t5Str = `${t5.getHours().toString().padStart(2, '0')}:${t5.getMinutes().toString().padStart(2, '0')}`;
 
         state.events.forEach(ev => {
-            if (ev.start === t5Str) {
-                playHaptic('chime');
-                new Notification(`Up Next in 5 mins: ${ev.title}`, { body: "Time to wrap up and prepare for focus." });
-            } else if (ev.start === nowStr) {
-                playHaptic('chime');
-                new Notification(`Starting Now: ${ev.title}`, { body: "Let's go!" });
-            }
+            if (ev.start === t5Str) { playHaptic('chime'); new Notification(`Up Next: ${ev.title}`, { body: "Starts in 5 mins." }); } 
+            else if (ev.start === nowStr) { playHaptic('chime'); new Notification(`Starting Now: ${ev.title}`); }
         });
     }
 }
 
-// ================= TIMELINE OVERLAPPING ALGORITHM & RENDER ================= 
+// ================= TIMELINE OVERLAPPING & EVENTS ================= 
 function renderColorPicker() {
-    colorPicker.innerHTML = '';
+    const cp = document.querySelector('.color-picker');
+    cp.innerHTML = '';
     EVENT_COLORS.forEach(c => {
         const div = document.createElement('div');
         div.className = `color-option ${state.selectedColor === c.id ? 'active' : ''}`;
-        div.style.backgroundColor = c.raw;
-        div.style.setProperty('--color-raw', c.raw);
-        div.addEventListener('click', () => {
-            playHaptic('tick');
-            state.selectedColor = c.id;
-            renderColorPicker();
-        });
-        colorPicker.appendChild(div);
+        div.style.backgroundColor = c.raw; div.style.setProperty('--color-raw', c.raw);
+        div.addEventListener('click', () => { playHaptic('tick'); state.selectedColor = c.id; renderColorPicker(); });
+        cp.appendChild(div);
     });
 }
+function t2m(ts) { const [h, m] = ts.split(':').map(Number); return h * 60 + m; }
+function m2t(m) { let h = Math.floor(m / 60); let min = m % 60; if(h>23){h=23;min=59;} return `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`; }
 
-function timeToMins(timeStr) {
-    const [h, m] = timeStr.split(':').map(Number);
-    return h * 60 + m;
-}
-function minsToTime(mins) {
-    let h = Math.floor(mins / 60);
-    let m = mins % 60;
-    if(h > 23) { h=23; m=59; } // cap to end of day
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-}
-
-function calculateOverlaps(eventsArray) {
-    const sorted = [...eventsArray].sort((a, b) => timeToMins(a.start) - timeToMins(b.start));
-    let columns = [];
-    
+function calculateOverlaps(arr) {
+    const sorted = [...arr].sort((a, b) => t2m(a.start) - t2m(b.start));
+    let cols = [];
     sorted.forEach(evt => {
-        const startMins = timeToMins(evt.start);
+        const start = t2m(evt.start);
         let placed = false;
-        for (let i = 0; i < columns.length; i++) {
-            const lastEvt = columns[i][columns[i].length - 1];
-            if (timeToMins(lastEvt.end) <= startMins) {
-                columns[i].push(evt);
-                evt.colIndex = i;
-                placed = true;
-                break;
-            }
+        for (let i = 0; i < cols.length; i++) {
+            if (t2m(cols[i][cols[i].length - 1].end) <= start) { cols[i].push(evt); evt.colIndex = i; placed = true; break; }
         }
-        if (!placed) {
-            evt.colIndex = columns.length;
-            columns.push([evt]);
-        }
+        if (!placed) { evt.colIndex = cols.length; cols.push([evt]); }
     });
-
     sorted.forEach(evt => {
-        const startMins = timeToMins(evt.start);
-        const endMins = timeToMins(evt.end);
-        let overlappingCols = 0;
-        for (let i = 0; i < columns.length; i++) {
-            if (columns[i].some(e => timeToMins(e.start) < endMins && timeToMins(e.end) > startMins)) {
-                overlappingCols++;
-            }
-        }
-        evt.maxCols = Math.max(overlappingCols, 1);
+        const st = t2m(evt.start); const en = t2m(evt.end);
+        let ovCols = 0;
+        for (let i = 0; i < cols.length; i++) if (cols[i].some(e => t2m(e.start) < en && t2m(e.end) > st)) ovCols++;
+        evt.maxCols = Math.max(ovCols, 1);
     });
-    
     return sorted;
 }
 
 function renderEvents() {
     eventsContainer.innerHTML = '';
-    
-    // Calculate total time blocked stats
-    let totalMins = 0;
     const processEvents = calculateOverlaps(state.events);
-
     processEvents.forEach(evt => {
-        const startMins = timeToMins(evt.start);
-        const endMins = timeToMins(evt.end);
-        const duration = endMins - startMins;
-        totalMins += duration;
-
+        const st = t2m(evt.start); const en = t2m(evt.end); const dur = en - st;
         const block = document.createElement('div');
         block.className = 'event-block';
-        
-        const widthPercent = (100 / evt.maxCols);
-        const leftPercent = (evt.colIndex * widthPercent);
-
-        block.style.top = `${startMins * PIXELS_PER_MINUTE}px`;
-        block.style.height = `${duration * PIXELS_PER_MINUTE}px`;
-        block.style.width = `calc(${widthPercent}% - 6px)`;
-        block.style.left = `calc(${leftPercent}% + 2px)`; // Padding adjustment
+        const wPct = (100 / evt.maxCols);
+        block.style.top = `${st * PIXELS_PER_MINUTE}px`;
+        block.style.height = `${dur * PIXELS_PER_MINUTE}px`;
+        block.style.width = `calc(${wPct}% - 6px)`;
+        block.style.left = `calc(${evt.colIndex * wPct}% + 2px)`;
         block.style.backgroundColor = EVENT_COLORS.find(c => c.id === evt.color)?.raw || EVENT_COLORS[0].raw;
         block.style.zIndex = evt.colIndex + 10;
-        
-        const titleEl = document.createElement('div');
-        titleEl.className = 'event-title';
-        titleEl.textContent = evt.title;
-        
-        const timeEl = document.createElement('div');
-        timeEl.className = 'event-time';
-        timeEl.textContent = `${evt.start} - ${evt.end}`;
-
-        const resizer = document.createElement('div');
-        resizer.className = 'resizer-handle';
-
-        block.appendChild(titleEl);
-        block.appendChild(timeEl);
-        block.appendChild(resizer);
-        
-        // Touch Drag Events
-        enableDragAndResize(block, evt);
-
+        block.innerHTML = `<div class="event-title">${evt.title}</div><div class="event-time">${evt.start} - ${evt.end}</div><div class="resizer-handle"></div>`;
+        enableDrag(block, evt);
         eventsContainer.appendChild(block);
     });
-
-    document.getElementById('statTimeBlocked').innerHTML = `${Math.floor(totalMins/60)}<span class="unit">h</span> ${totalMins%60}<span class="unit">m</span>`;
 }
-
-// ================= DRAG & DROP / RESIZE ================= 
-let isDragging = false, isResizing = false;
-let startTouchY = 0, initialTop = 0, initialHeight = 0;
-let dragTimer = null;
-
-function enableDragAndResize(block, evtObj) {
-    const resizer = block.querySelector('.resizer-handle');
-    
-    // Tap to Edit / Long Press to Drag
+let bDrag = false, bRes = false, sTY = 0, iT = 0, iH = 0, dTimer;
+function enableDrag(block, evtObj) {
+    const res = block.querySelector('.resizer-handle');
     block.addEventListener('touchstart', (e) => {
-        if (e.target.classList.contains('resizer-handle')) return; // handled separately
-        e.stopPropagation(); // don't click map
-        
-        startTouchY = e.touches[0].clientY;
-        initialTop = parseFloat(block.style.top);
-        
-        dragTimer = setTimeout(() => {
-            isDragging = true;
-            block.classList.add('dragging');
-            playHaptic('tick');
-        }, 300); // 300ms long press avoids immediate drag while scrolling
+        if (e.target.classList.contains('resizer-handle')) return;
+        e.stopPropagation(); sTY = e.touches[0].clientY; iT = parseFloat(block.style.top);
+        dTimer = setTimeout(() => { bDrag = true; block.classList.add('dragging'); playHaptic('tick'); }, 300);
     }, {passive: false});
-
     block.addEventListener('touchmove', (e) => {
-        if (!isDragging) {
-            clearTimeout(dragTimer); // Move meant scrolling, cancel long press
-            return;
-        }
-        e.preventDefault(); // stop scrolling
-        const delta = e.touches[0].clientY - startTouchY;
-        let newTop = initialTop + delta;
-        newTop = Math.max(0, newTop); // Don't drag above 00:00
-        block.style.top = `${newTop}px`;
+        if (!bDrag) { clearTimeout(dTimer); return; } e.preventDefault();
+        block.style.top = `${Math.max(0, iT + (e.touches[0].clientY - sTY))}px`;
     }, {passive: false});
-
     block.addEventListener('touchend', (e) => {
-        clearTimeout(dragTimer);
-        if (!isDragging) {
-            // Was just a normal click to open edit
-            openEventModal(evtObj);
-        } else {
-            // Finish drag
-            isDragging = false;
-            block.classList.remove('dragging');
-            playHaptic('tick');
-            
-            // Re-calculate times based on position. Snap to 5 mins (5px = 5 mins)
-            let newTop = parseFloat(block.style.top);
-            let snapTop = Math.round(newTop / 5) * 5; 
-            const durationMins = timeToMins(evtObj.end) - timeToMins(evtObj.start);
-            
-            evtObj.start = minsToTime(snapTop);
-            evtObj.end = minsToTime(snapTop + durationMins);
-            
-            saveData();
-            renderEvents();
+        clearTimeout(dTimer);
+        if (!bDrag) openEventModal(evtObj);
+        else {
+            bDrag = false; block.classList.remove('dragging'); playHaptic('pop');
+            const snapTop = Math.round(parseFloat(block.style.top) / 5) * 5;
+            const dur = t2m(evtObj.end) - t2m(evtObj.start);
+            evtObj.start = m2t(snapTop); evtObj.end = m2t(snapTop + dur);
+            saveData(); renderEvents();
         }
     });
-
-    // Resize functionality
-    resizer.addEventListener('touchstart', (e) => {
-        e.stopPropagation();
-        isResizing = true;
-        startTouchY = e.touches[0].clientY;
-        initialHeight = parseFloat(block.style.height);
-        block.classList.add('dragging');
-    }, {passive: false});
-
-    resizer.addEventListener('touchmove', (e) => {
-        if (!isResizing) return;
-        e.preventDefault();
-        const delta = e.touches[0].clientY - startTouchY;
-        let newHeight = initialHeight + delta;
-        newHeight = Math.max(15, newHeight); // min length 15 mins
-        block.style.height = `${newHeight}px`;
-    }, {passive: false});
-
-    resizer.addEventListener('touchend', (e) => {
-        if (!isResizing) return;
-        isResizing = false;
-        block.classList.remove('dragging');
-        playHaptic('tick');
-        
-        let newHeight = parseFloat(block.style.height);
-        let snapHeight = Math.round(newHeight / 5) * 5;
-        const newDuration = snapHeight;
-        
-        evtObj.end = minsToTime(timeToMins(evtObj.start) + newDuration);
-        
-        saveData();
-        renderEvents();
+    res.addEventListener('touchstart', (e) => { e.stopPropagation(); bRes = true; sTY = e.touches[0].clientY; iH = parseFloat(block.style.height); block.classList.add('dragging'); }, {passive: false});
+    res.addEventListener('touchmove', (e) => { if(!bRes)return; e.preventDefault(); block.style.height = `${Math.max(15, iH + (e.touches[0].clientY - sTY))}px`; }, {passive: false});
+    res.addEventListener('touchend', (e) => {
+        if(!bRes)return; bRes = false; block.classList.remove('dragging'); playHaptic('tick');
+        evtObj.end = m2t(t2m(evtObj.start) + Math.round(parseFloat(block.style.height) / 5) * 5);
+        saveData(); renderEvents();
     });
 }
-
-function openEventModal(eventObj = null) {
-    if (eventObj && typeof eventObj === 'object') {
-        document.getElementById('editingEventId').value = eventObj.id || '';
-        document.getElementById('eventTitle').value = eventObj.title;
-        document.getElementById('startTime').value = eventObj.start;
-        document.getElementById('endTime').value = eventObj.end;
-        state.selectedColor = eventObj.color;
-        
-        if (eventObj.id) {
-            document.getElementById('btnDeleteEvent').classList.remove('hidden');
-            document.getElementById('btnFocusEvent').classList.remove('hidden');
-        } else {
-            document.getElementById('btnDeleteEvent').classList.add('hidden');
-            document.getElementById('btnFocusEvent').classList.add('hidden');
-        }
+function openEventModal(evt = null) {
+    if (evt && evt.id) {
+        document.getElementById('editingEventId').value = evt.id; document.getElementById('eventTitle').value = evt.title;
+        document.getElementById('startTime').value = evt.start; document.getElementById('endTime').value = evt.end;
+        state.selectedColor = evt.color;
+        document.getElementById('btnDeleteEvent').classList.remove('hidden'); document.getElementById('btnFocusEvent').classList.remove('hidden');
     } else {
-        const d = new Date();
-        const start = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-        const end = `${(d.getHours()+1).toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-        
-        document.getElementById('editingEventId').value = '';
-        document.getElementById('eventTitle').value = '';
-        document.getElementById('startTime').value = start;
-        document.getElementById('endTime').value = end;
-        
-        document.getElementById('btnDeleteEvent').classList.add('hidden');
-        document.getElementById('btnFocusEvent').classList.add('hidden');
+        const d = new Date(); const st = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+        document.getElementById('editingEventId').value = ''; document.getElementById('eventTitle').value = evt?.title || '';
+        document.getElementById('startTime').value = evt?.start || st; document.getElementById('endTime').value = evt?.end || st;
+        document.getElementById('btnDeleteEvent').classList.add('hidden'); document.getElementById('btnFocusEvent').classList.add('hidden');
     }
-    
-    renderColorPicker();
-    addEventSheet.classList.remove('hidden');
-    setTimeout(() => document.getElementById('eventTitle').focus(), 300);
+    renderColorPicker(); addEventSheet.classList.remove('hidden');
 }
 
-// ================= HABITS & STREAKS ================= 
+// ================= HABITS (WITH EDIT AND STREAKS) ================= 
 function isSameDay(d1, d2) { return d1.toDateString() === d2.toDateString(); }
-
 function calculateStreak(datesArr) {
     if(!datesArr || datesArr.length === 0) return 0;
     const dates = datesArr.map(d => new Date(d)).sort((a,b) => b-a);
-    let streak = 0;
-    let currTarget = new Date();
-    
-    // Check if missed today, then maybe target yesterday
-    if (!isSameDay(dates[0], currTarget)) {
-        let yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-        if (isSameDay(dates[0], yesterday)) currTarget = yesterday;
-        else return 0; // Missed yesterday = streak 0
+    let streak = 0; let curr = new Date();
+    if (!isSameDay(dates[0], curr)) {
+        let yes = new Date(); yes.setDate(yes.getDate() - 1);
+        if (isSameDay(dates[0], yes)) curr = yes; else return 0;
     }
-    
-    for(let i=0; i<dates.length; i++) {
-        if (isSameDay(dates[i], currTarget)) {
-            streak++;
-            currTarget.setDate(currTarget.getDate() - 1);
-        } else break;
-    }
+    for(let i=0; i<dates.length; i++) { if (isSameDay(dates[i], curr)) { streak++; curr.setDate(curr.getDate() - 1); } else break; }
     return streak;
 }
 
 document.getElementById('btnAddHabit').addEventListener('click', () => {
-    playHaptic('tick');
-    document.getElementById('taskFormMode').value = 'habit';
-    document.getElementById('taskModalTitle').textContent = 'New Daily Habit';
-    addTaskSheet.classList.remove('hidden');
-    setTimeout(() => document.getElementById('taskInputTitle').focus(), 300);
+    document.getElementById('habitModalTitle').textContent = 'New Habit';
+    document.getElementById('habitInputTitle').value = ''; document.getElementById('editingHabitId').value = '';
+    document.getElementById('btnDeleteHabit').classList.add('hidden');
+    addHabitSheet.classList.remove('hidden');
 });
 
-function renderHabits() {
-    const box = document.getElementById('habitsContainer');
-    box.innerHTML = '';
-    const todayStr = new Date().toDateString();
-    let maxStreak = 0;
+document.getElementById('habitForm').addEventListener('submit', (e) => {
+    e.preventDefault(); playHaptic('pop');
+    const title = document.getElementById('habitInputTitle').value.trim();
+    const id = document.getElementById('editingHabitId').value;
+    if(id) {
+        let h = state.habits.find(x => x.id === id); if(h) h.title = title;
+    } else {
+        state.habits.push({ id: Date.now().toString(), title, completedDates: [] });
+    }
+    saveData(); renderHabits(); addHabitSheet.classList.add('hidden');
+});
 
+document.getElementById('btnDeleteHabit').addEventListener('click', () => {
+    state.habits = state.habits.filter(x => x.id !== document.getElementById('editingHabitId').value);
+    saveData(); renderHabits(); addHabitSheet.classList.add('hidden'); playHaptic('tick');
+});
+
+let habitPressTimer;
+function renderHabits() {
+    const box = document.getElementById('habitsContainer'); box.innerHTML = '';
+    const today = new Date().toDateString();
+    
     state.habits.forEach(h => {
         const streak = calculateStreak(h.completedDates);
-        if (streak > maxStreak) maxStreak = streak;
-        const doneToday = h.completedDates.indexOf(todayStr) !== -1;
-
+        const done = h.completedDates.indexOf(today) !== -1;
         const el = document.createElement('div');
-        el.className = `habit-item ${doneToday ? 'done' : ''}`;
-        
-        // Use initial letter as icon
-        const iconLetter = h.title.charAt(0).toUpperCase();
-
+        el.className = `habit-item ${done ? 'done' : ''}`;
         el.innerHTML = `
-            <div class="habit-icon haptic">
-                <span style="font-size: 1.2rem; font-weight: bold;">${doneToday ? '✓' : iconLetter}</span>
-            </div>
+            <div class="habit-icon haptic"><span style="font-size: 1.2rem; font-weight: bold;">${done ? '✓' : h.title.charAt(0).toUpperCase()}</span></div>
             <span class="habit-name">${h.title}</span>
             ${streak > 0 ? `<div class="streak-badge">🔥 ${streak}</div>` : ''}
         `;
         
-        el.addEventListener('click', () => {
-             if (doneToday) {
-                 h.completedDates = h.completedDates.filter(d => d !== todayStr);
-                 playHaptic('tick');
-             } else {
-                 h.completedDates.push(todayStr);
-                 playHaptic('pop'); // Big dopamine for hitting habit
-             }
-             saveData(); renderHabits();
+        // Long Press to Edit Logic
+        el.addEventListener('touchstart', () => {
+            habitPressTimer = setTimeout(() => {
+                playHaptic('tick'); el.classList.add('edit-mode');
+                // Open edit modal directly
+                setTimeout(() => {
+                    document.getElementById('habitModalTitle').textContent = 'Edit Habit';
+                    document.getElementById('habitInputTitle').value = h.title; 
+                    document.getElementById('editingHabitId').value = h.id;
+                    document.getElementById('btnDeleteHabit').classList.remove('hidden');
+                    addHabitSheet.classList.remove('hidden');
+                    el.classList.remove('edit-mode');
+                }, 400);
+            }, 500);
+        }, {passive:true});
+        el.addEventListener('touchend', () => clearTimeout(habitPressTimer));
+        el.addEventListener('touchmove', () => clearTimeout(habitPressTimer));
+        
+        // Normal Click to toggle
+        el.addEventListener('click', (e) => {
+            if(el.classList.contains('edit-mode')) return; // handled by long press
+            if (done) h.completedDates = h.completedDates.filter(d => d !== today);
+            else h.completedDates.push(today);
+            playHaptic(done ? 'tick' : 'pop'); saveData(); renderHabits();
         });
 
         box.appendChild(el);
     });
-
-    document.getElementById('statHighestStreak').textContent = maxStreak;
 }
 
-
-// ================= TASKS LIST ================= 
-taskForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    playHaptic('pop');
-    const input = document.getElementById('taskInputTitle');
-    const title = input.value.trim();
-    if (!title) return;
-
-    const mode = document.getElementById('taskFormMode').value;
-    if (mode === 'task') {
-        state.tasks.push({ id: Date.now().toString(), title, completed: false });
-        renderTasks();
-    } else {
-        state.habits.push({ id: Date.now().toString(), title, completedDates: [] });
-        renderHabits();
-    }
+// ================= PROJECTS / KANBAN ================= 
+document.getElementById('taskForm').addEventListener('submit', (e) => {
+    e.preventDefault(); playHaptic('pop');
+    const id = document.getElementById('editingTaskId').value;
+    const title = document.getElementById('taskInputTitle').value.trim();
+    const status = document.getElementById('taskInputStatus').value;
     
-    input.value = '';
-    saveData();
-    addTaskSheet.classList.add('hidden');
+    if(id) {
+        let t = state.tasks.find(x => x.id === id); 
+        if(t){ t.title = title; t.status = status; }
+    } else {
+        state.tasks.push({ id: Date.now().toString(), title, status });
+    }
+    saveData(); renderTasks(); addTaskSheet.classList.add('hidden');
 });
+
+document.getElementById('btnDeleteTask').addEventListener('click', () => {
+    state.tasks = state.tasks.filter(x => x.id !== document.getElementById('editingTaskId').value);
+    saveData(); renderTasks(); addTaskSheet.classList.add('hidden'); playHaptic('tick');
+});
+
+function openTaskModal(tk = null) {
+    if(tk) {
+        document.getElementById('taskModalTitle').textContent = 'Edit Task';
+        document.getElementById('editingTaskId').value = tk.id;
+        document.getElementById('taskInputTitle').value = tk.title;
+        document.getElementById('taskInputStatus').value = tk.status;
+        document.getElementById('btnDeleteTask').classList.remove('hidden');
+    } else {
+        document.getElementById('taskModalTitle').textContent = 'New Task';
+        document.getElementById('editingTaskId').value = '';
+        document.getElementById('taskInputTitle').value = '';
+        document.getElementById('taskInputStatus').value = 'todo';
+        document.getElementById('btnDeleteTask').classList.add('hidden');
+    }
+    addTaskSheet.classList.remove('hidden');
+}
 
 function renderTasks() {
-    const list = document.getElementById('taskList');
-    list.innerHTML = '';
+    ['todo','doing','done'].forEach(st => document.getElementById(`list-${st}`).innerHTML = '');
     
-    if (state.tasks.length === 0) {
-         list.innerHTML = `<div class="empty-state">No goals for today. Add one above!</div>`;
-    }
-
-    state.tasks.forEach(task => {
-        const div = document.createElement('div');
-        div.className = `task-item haptic ${task.completed ? 'completed' : ''}`;
+    let stats = { todo: 0, doing: 0, done: 0 };
+    state.tasks.forEach(t => {
+        stats[t.status]++;
+        const card = document.createElement('div');
+        card.className = 'k-card haptic';
         
-        div.innerHTML = `
-            <div class="checkbox-custom">
-                <span class="material-icons-round">check</span>
-            </div>
-            <div class="task-title">${task.title}</div>
-            <div class="task-delete">
-                <span class="material-icons-round">close</span>
+        let nextBtn = '';
+        if(t.status === 'todo') nextBtn = `<button class="k-move-btn haptic" onclick="moveTask('${t.id}', 'doing', event)">Start <span class="material-icons-round" style="font-size:14px;">arrow_forward</span></button>`;
+        else if(t.status === 'doing') nextBtn = `<button class="k-move-btn haptic" style="color:var(--success);" onclick="moveTask('${t.id}', 'done', event)">Finish <span class="material-icons-round" style="font-size:14px;">check</span></button>`;
+        
+        card.innerHTML = `
+            <div class="k-title">${t.title}</div>
+            <div class="k-actions">
+                <span style="font-size:0.75rem; color:var(--text-secondary);">&nbsp;</span>
+                ${nextBtn}
             </div>
         `;
-        
-        div.addEventListener('click', (e) => {
-            if (e.target.closest('.task-delete')) {
-                state.tasks = state.tasks.filter(t => t.id !== task.id);
-                playHaptic('tick');
-            } else {
-                task.completed = !task.completed;
-                playHaptic(task.completed ? 'pop' : 'tick');
-            }
-            saveData();
-            renderTasks();
+        card.addEventListener('click', (e) => {
+            if(!e.target.closest('.k-move-btn')) openTaskModal(t);
         });
-        
-        list.appendChild(div);
+        document.getElementById(`list-${t.status}`).appendChild(card);
     });
-    
-    // Update Focus View text
-    const pending = state.tasks.filter(t => !t.completed).length;
-    document.getElementById('insightTodoCount').textContent = pending === 0 ? "0 items" : 
-        pending === 1 ? "1 item" : `${pending} items`;
 
-    // Progress Bar
+    ['todo','doing','done'].forEach(st => document.getElementById(`badge-${st}`).textContent = stats[st]);
+    
     const total = state.tasks.length;
-    const completedCount = total - pending;
-    document.getElementById('taskProgressText').textContent = `${completedCount}/${total}`;
-    document.getElementById('taskProgressBar').style.width = total === 0 ? '0%' : `${(completedCount/total)*100}%`;
+    document.getElementById('taskProgressText').textContent = total === 0 ? "0% Done" : `${Math.round((stats.done / total)*100)}% Done`;
+}
+window.moveTask = function(id, st, e) {
+    if(e) e.stopPropagation();
+    let t = state.tasks.find(x => x.id === id);
+    if(t) { t.status = st; playHaptic(st==='done'?'pop':'tick'); saveData(); renderTasks(); }
 }
 
+// ================= FINANCE ================= 
+document.querySelectorAll('.ft-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.ft-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active'); document.getElementById('finType').value = btn.getAttribute('data-type');
+        playHaptic('tick');
+    });
+});
+function openFinanceModal(tx = null) {
+    if(tx) {
+        document.getElementById('editingFinId').value = tx.id;
+        document.getElementById('finAmount').value = tx.amount;
+        document.getElementById('finDesc').value = tx.desc;
+        document.getElementById('finType').value = tx.type;
+        document.querySelectorAll('.ft-btn').forEach(b => b.classList.toggle('active', b.getAttribute('data-type')===tx.type));
+        document.getElementById('btnDeleteFin').classList.remove('hidden');
+    } else {
+        document.getElementById('editingFinId').value = ''; document.getElementById('finAmount').value = ''; document.getElementById('finDesc').value = '';
+        document.getElementById('btnDeleteFin').classList.add('hidden');
+    }
+    addFinanceSheet.classList.remove('hidden');
+}
 
-// ================= FOCUS POMODORO MODE ================= 
-const focusOverlay = document.getElementById('focusOverlay');
-const pomTimerTxt = document.getElementById('pomodoroTimeText');
-const pomProgress = document.getElementById('pomodoroProgress');
-let pomInterval = null;
-let pomSecondsLeft = 0;
-let pomTotalSeconds = 0;
-let pomIsPaused = false;
+document.getElementById('financeForm').addEventListener('submit', (e) => {
+    e.preventDefault(); playHaptic('pop');
+    let id = document.getElementById('editingFinId').value;
+    let t = {
+        id: id || Date.now().toString(),
+        amount: parseFloat(document.getElementById('finAmount').value),
+        desc: document.getElementById('finDesc').value,
+        type: document.getElementById('finType').value,
+        date: new Date().toISOString()
+    };
+    if(id) { let idx = state.transactions.findIndex(x=>x.id===id); if(idx>-1) state.transactions[idx]=t; }
+    else state.transactions.push(t);
+    saveData(); renderFinance(); addFinanceSheet.classList.add('hidden');
+});
+document.getElementById('btnDeleteFin').addEventListener('click', () => {
+    state.transactions = state.transactions.filter(x => x.id !== document.getElementById('editingFinId').value);
+    saveData(); renderFinance(); addFinanceSheet.classList.add('hidden'); playHaptic('tick');
+});
+function getF() {
+    return new Intl.NumberFormat('th-TH', { style:'currency', currency:'THB' });
+}
+function renderFinance() {
+    let inc = 0, exp = 0;
+    const ls = document.getElementById('transactionList'); ls.innerHTML = '';
+    
+    [...state.transactions].sort((a,b)=> new Date(b.date)-new Date(a.date)).forEach(tx => {
+        if(tx.type==='INCOME') inc += tx.amount; else exp += tx.amount;
+        
+        let el = document.createElement('div'); el.className = `txn-item ${tx.type}`;
+        el.innerHTML = `
+            <div class="txn-info">
+                <div class="txn-desc">${tx.desc}</div>
+                <div class="txn-date">${new Date(tx.date).toLocaleDateString()}</div>
+            </div>
+            <div class="txn-amount">${tx.type==='INCOME'?'+':'-'} ${getF().format(tx.amount)}</div>
+        `;
+        el.addEventListener('click', ()=> openFinanceModal(tx));  ls.appendChild(el);
+    });
 
-document.getElementById('btnFocusEvent').addEventListener('click', () => {
-    // Open focus mode
-    playHaptic('pop');
-    addEventSheet.classList.add('hidden');
-    
-    const id = document.getElementById('editingEventId').value;
-    const ev = state.events.find(e => e.id === id);
-    if(!ev) return;
+    document.getElementById('totalIncome').textContent = getF().format(inc);
+    document.getElementById('totalExpense').textContent = getF().format(exp);
+    document.getElementById('totalBalance').textContent = getF().format(inc - exp);
+}
 
-    document.getElementById('focusTaskName').textContent = ev.title;
-    
-    // Init timer (Get duration in minutes)
-    const durMins = timeToMins(ev.end) - timeToMins(ev.start);
-    pomTotalSeconds = durMins * 60;
-    pomSecondsLeft = pomTotalSeconds;
-    pomIsPaused = false;
-    
-    updatePomodoroDisplay();
-
-    focusOverlay.classList.remove('hidden');
-    
-    clearInterval(pomInterval);
-    pomInterval = setInterval(() => {
-        if(!pomIsPaused && pomSecondsLeft > 0) {
-            pomSecondsLeft--;
-            updatePomodoroDisplay();
-            if(pomSecondsLeft === 0) {
-                playHaptic('chime');
-                clearInterval(pomInterval);
+// ================= INSIGHT & MOOD JOURNAL ================= 
+let currentSelectedStars = 0;
+document.querySelectorAll('.star').forEach(st => {
+    st.addEventListener('click', (e) => {
+        playHaptic('tick');
+        currentSelectedStars = parseInt(e.target.getAttribute('data-val'));
+        document.querySelectorAll('.star').forEach(s => {
+            if(parseInt(s.getAttribute('data-val')) <= currentSelectedStars) {
+                s.textContent = 'star'; s.classList.add('active');
+            } else {
+                s.textContent = 'star_outline'; s.classList.remove('active');
             }
-        }
+        });
+    });
+});
+
+document.getElementById('btnSaveJournal').addEventListener('click', () => {
+    if (currentSelectedStars === 0) return alert("Please select a star rating first.");
+    const txt = document.getElementById('gratitudeInput').value.trim();
+    playHaptic('pop');
+    state.journal.push({
+        id: Date.now().toString(),
+        date: new Date().toISOString(),
+        stars: currentSelectedStars,
+        text: txt
+    });
+    saveData(); renderJournal();
+    document.getElementById('gratitudeInput').value = '';
+    document.getElementById('journalFeedback').style.display = 'block';
+    setTimeout(()=> document.getElementById('journalFeedback').style.display = 'none', 3000);
+});
+
+function renderJournal() {
+    const box = document.getElementById('journalHistoryContainer'); box.innerHTML = '';
+    [...state.journal].sort((a,b)=> new Date(b.date)-new Date(a.date)).forEach(j => {
+        let starsStr = ''; for(let i=0;i<j.stars;i++) starsStr += '★';
+        const el = document.createElement('div'); el.className = 'journal-item';
+        el.innerHTML = `
+            <div class="journal-head">
+                <span class="journal-date">${new Date(j.date).toLocaleDateString()}</span>
+                <span class="journal-stars">${starsStr}</span>
+            </div>
+            ${j.text ? `<div class="journal-text">"${j.text}"</div>` : ''}
+        `;
+        box.appendChild(el);
+    });
+}
+
+// ================= FOCUS POMODORO ================= 
+const focusOverlay = document.getElementById('focusOverlay');
+let pomIntervalId, pomLeft, pomTotal, pomPaused;
+document.getElementById('btnFocusEvent').addEventListener('click', () => {
+    playHaptic('pop'); addEventSheet.classList.add('hidden');
+    const ev = state.events.find(e => e.id === document.getElementById('editingEventId').value);
+    if(!ev) return;
+    document.getElementById('focusTaskName').textContent = ev.title;
+    pomTotal = (t2m(ev.end) - t2m(ev.start)) * 60; pomLeft = pomTotal; pomPaused = false;
+    updatePomDisplay(); focusOverlay.classList.remove('hidden');
+    clearInterval(pomIntervalId);
+    pomIntervalId = setInterval(() => {
+        if(!pomPaused && pomLeft > 0) { pomLeft--; updatePomDisplay(); if(pomLeft===0){ playHaptic('chime'); clearInterval(pomIntervalId); } }
     }, 1000);
 });
-
-function updatePomodoroDisplay() {
-    let m = Math.floor(pomSecondsLeft / 60);
-    let s = pomSecondsLeft % 60;
-    pomTimerTxt.textContent = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    
-    // Dasharray is 565.48 max. Inverse dash offset for progress.
-    const maxDash = 565.48;
-    const percent = pomSecondsLeft / pomTotalSeconds;
-    pomProgress.style.strokeDashoffset = maxDash - (maxDash * percent);
+function updatePomDisplay() {
+    let m = Math.floor(pomLeft / 60); let s = pomLeft % 60;
+    document.getElementById('pomodoroTimeText').textContent = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    document.getElementById('pomodoroProgress').style.strokeDashoffset = 565.48 - (565.48 * (pomLeft/pomTotal));
 }
-
 document.getElementById('btnToggleFocus').addEventListener('click', (e) => {
-    playHaptic('tick');
-    pomIsPaused = !pomIsPaused;
-    const icon = document.getElementById('focusPlayIcon');
-    const btn = e.currentTarget;
-    if(pomIsPaused) {
-        icon.textContent = "play_arrow";
-        btn.classList.remove('pause'); btn.classList.add('play');
-        document.getElementById('focusPhaseText').textContent = 'paused';
-    } else {
-        icon.textContent = "pause";
-        btn.classList.add('pause'); btn.classList.remove('play');
-        document.getElementById('focusPhaseText').textContent = 'time to focus';
-    }
+    playHaptic('tick'); pomPaused = !pomPaused;
+    const btn = e.currentTarget; const icon = document.getElementById('focusPlayIcon');
+    if(pomPaused) { icon.textContent="play_arrow"; btn.classList.replace('pause','play'); document.getElementById('focusPhaseText').textContent='paused'; } 
+    else { icon.textContent="pause"; btn.classList.replace('play','pause'); document.getElementById('focusPhaseText').textContent='time to focus'; }
 });
+document.getElementById('btnExitFocus').addEventListener('click', () => { playHaptic('tick'); clearInterval(pomIntervalId); focusOverlay.classList.add('hidden'); });
 
-document.getElementById('btnExitFocus').addEventListener('click', () => {
-    playHaptic('tick');
-    clearInterval(pomInterval);
-    focusOverlay.classList.add('hidden');
-});
-
-// ================= UTILITIES ================= 
 function renderDayStats() {
-    const d = new Date();
-    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const d = new Date(); const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-    
-    headerTitle.textContent = "Timeline";
     headerSubtitle.textContent = `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
-    
-    const h = d.getHours();
-    let msg = "Good Evening,";
-    if(h < 12) msg = "Good Morning,";
-    else if(h < 18) msg = "Good Afternoon,";
-    document.getElementById('greetingMsg').textContent = msg;
-
-    // Build top week slider (Dummy visual slider showing current week around today)
-    const weekWrap = document.getElementById('weekSlider');
-    weekWrap.innerHTML = '';
+    const h = d.getHours(); document.getElementById('greetingMsg').textContent = h<12?"Good Morning,":h<18?"Good Afternoon,":"Good Evening,";
+    const w = document.getElementById('weekSlider'); w.innerHTML = '';
     for(let i=-2; i<=4; i++) {
-        let loopDate = new Date();
-        loopDate.setDate(d.getDate() + i);
-        
-        let card = document.createElement('div');
-        card.className = `day-card haptic ${i===0 ? 'active' : ''}`;
-        card.innerHTML = `<div class="day-name">${days[loopDate.getDay()].substr(0,3)}</div><div class="day-num">${loopDate.getDate()}</div>`;
-        weekWrap.appendChild(card);
+        let l = new Date(); l.setDate(d.getDate() + i);
+        w.innerHTML += `<div class="day-card haptic ${i===0?'active':''}"><div class="day-name">${days[l.getDay()].substr(0,3)}</div><div class="day-num">${l.getDate()}</div></div>`;
     }
 }
-
 function saveData() {
     localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(state.events));
     localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(state.tasks));
     localStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(state.habits));
+    localStorage.setItem(STORAGE_KEYS.FINANCE, JSON.stringify(state.transactions));
+    localStorage.setItem(STORAGE_KEYS.JOURNAL, JSON.stringify(state.journal));
 }
 
 document.addEventListener('DOMContentLoaded', init);
