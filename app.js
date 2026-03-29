@@ -1,551 +1,739 @@
-// === Core State ===
-let state = {
-    currentTab: 'view-timeline', // view-timeline, view-tasks, view-focus
-    selectedDate: new Date(),
-    events: [], // { id, title, start, end, color, date }
-    tasks: []   // { id, title, completed }
-};
-
+const STORAGE_KEYS = { EVENTS: 'lifeos_events', TASKS: 'lifeos_tasks', HABITS: 'lifeos_habits' };
+const EVENT_COLORS = [
+    { id: 'brand', raw: '#8B5CF6' }, { id: 'cyan', raw: '#06B6D4' },
+    { id: 'rose', raw: '#F43F5E' }, { id: 'amber', raw: '#F59E0B' },
+    { id: 'emerald', raw: '#10B981' }, { id: 'indigo', raw: '#6366F1' }
+];
 const PIXELS_PER_MINUTE = 1;
 
-// === Colors Palette ===
-const colors = [
-    { id: 'brand', bg: 'linear-gradient(135deg, #8B5CF6, #06B6D4)', raw: '#8B5CF6' },
-    { id: 'work', bg: 'linear-gradient(135deg, #4F46E5, #818CF8)', raw: '#4F46E5' },
-    { id: 'personal', bg: 'linear-gradient(135deg, #0EA5E9, #38BDF8)', raw: '#0EA5E9' },
-    { id: 'health', bg: 'linear-gradient(135deg, #10B981, #34D399)', raw: '#10B981' },
-    { id: 'study', bg: 'linear-gradient(135deg, #F59E0B, #FBBF24)', raw: '#F59E0B' },
-    { id: 'alert', bg: 'linear-gradient(135deg, #EF4444, #F87171)', raw: '#EF4444' }
-];
+let state = {
+    events: JSON.parse(localStorage.getItem(STORAGE_KEYS.EVENTS)) || [],
+    tasks: JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS)) || [],
+    habits: JSON.parse(localStorage.getItem(STORAGE_KEYS.HABITS)) || [
+        { id: 'h1', title: 'Drink Water', completedDates: [] },
+        { id: 'h2', title: 'Read 10 mins', completedDates: [] }
+    ],
+    selectedColor: EVENT_COLORS[0].id,
+    activeTab: 'view-timeline',
+    notificationsEnabled: Notification.permission === 'granted'
+};
 
-// === Audio Context (Haptic Feedback) ===
-let audioCtx = null;
-function initAudio() {
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-}
-
+// ================= HAPTIC AUDIO ================= 
+let audioCtx;
+function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
 function playHaptic(type = 'tick') {
     if (!audioCtx) return;
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
-    
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    const now = audioCtx.currentTime;
     if (type === 'tick') {
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(800, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.05);
-        gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.05);
+        osc.frequency.setValueAtTime(150, now);
+        osc.frequency.exponentialRampToValueAtTime(0.01, now + 0.05);
+        gain.gain.setValueAtTime(0.5, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+        osc.start(now); osc.stop(now + 0.05);
     } else if (type === 'pop') {
+        osc.frequency.setValueAtTime(400, now);
+        osc.frequency.exponentialRampToValueAtTime(800, now + 0.1);
+        gain.gain.setValueAtTime(0.8, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+        osc.type = 'sine';
+        osc.start(now); osc.stop(now + 0.1);
+    } else if (type === 'chime') {
+        osc.frequency.setValueAtTime(800, now);
+        osc.frequency.exponentialRampToValueAtTime(400, now + 0.5);
+        gain.gain.setValueAtTime(0.6, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(400, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.1);
+        osc.start(now); osc.stop(now + 0.5);
     }
 }
 
-// Ensure audio context starts on first interaction
-document.body.addEventListener('touchstart', initAudio, { once: true });
-document.body.addEventListener('click', initAudio, { once: true });
-
-// Attach basic haptics
-document.querySelectorAll('.haptic').forEach(el => {
-    el.addEventListener('click', () => playHaptic('tick'));
-});
-
-// === DOM Elements ===
-const navBtns = document.querySelectorAll('.nav-btn');
-const views = document.querySelectorAll('.view-section');
+// ================= DOM ELEMENTS ================= 
+const grid = document.getElementById('timelineGrid');
+const eventsContainer = document.getElementById('eventsContainer');
+const timeLine = document.getElementById('currentTimeLine');
+const addEventSheet = document.getElementById('addEventSheet');
+const addTaskSheet = document.getElementById('addTaskSheet');
+const eventForm = document.getElementById('eventForm');
+const taskForm = document.getElementById('taskForm');
+const colorPicker = document.querySelector('.color-picker');
+const fabBtn = document.getElementById('fabBtn');
 const headerTitle = document.getElementById('headerTitle');
 const headerSubtitle = document.getElementById('headerSubtitle');
-const timelineHeaderExt = document.getElementById('timelineHeaderExt');
-const fabBtn = document.getElementById('fabBtn');
-const fabIcon = fabBtn.querySelector('.material-icons-round');
 
-// Timeline Elements
-const weekSlider = document.getElementById('weekSlider');
-const timelineGrid = document.getElementById('timelineGrid');
-const eventsContainer = document.getElementById('eventsContainer');
-const currentTimeLine = document.getElementById('currentTimeLine');
-const timelineContainer = document.getElementById('timelineContainer');
-const btnToday = document.getElementById('btnToday');
-
-// Event Modal
-const addEventSheet = document.getElementById('addEventSheet');
-const eventForm = document.getElementById('eventForm');
-const colorPicker = document.querySelector('.color-picker');
-
-// Task Elements
-const taskList = document.getElementById('taskList');
-const taskProgressBar = document.getElementById('taskProgressBar');
-const taskProgressText = document.getElementById('taskProgressText');
-const addTaskSheet = document.getElementById('addTaskSheet');
-const taskForm = document.getElementById('taskForm');
-
-// Focus Elements
-const greetingMsg = document.getElementById('greetingMsg');
-const insightTodoCount = document.getElementById('insightTodoCount');
-const statTimeBlocked = document.getElementById('statTimeBlocked');
-const statTasksDone = document.getElementById('statTasksDone');
-
-// === Initialization ===
-function init() {
-    loadData();
-    setupModals();
-    populateColorPicker();
-    
-    // Timeline specific
-    renderTimelineGrid();
-    renderWeekCalendar();
-    
-    const interactiveBg = document.createElement('div');
-    interactiveBg.className = 'timeline-interactive-bg';
-    interactiveBg.onclick = handleTimelineClick;
-    timelineGrid.appendChild(interactiveBg);
-
-    updateCurrentTimeIndicator();
-    setInterval(updateCurrentTimeIndicator, 60000);
-    setTimeout(scrollToCurrentTime, 100);
-
-    // Initial render
-    renderEvents();
-    renderTasks();
-    updateFocusDashboard();
-    
-    // Setup Navigation
-    setupNavigation();
-}
-
-function loadData() {
-    state.events = JSON.parse(localStorage.getItem('lifeos_events')) || [];
-    state.tasks = JSON.parse(localStorage.getItem('lifeos_tasks')) || [];
-}
-
-function saveData() {
-    localStorage.setItem('lifeos_events', JSON.stringify(state.events));
-    localStorage.setItem('lifeos_tasks', JSON.stringify(state.tasks));
-    updateFocusDashboard();
-}
-
-// === Navigation & Layout System ===
-function setupNavigation() {
-    navBtns.forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const target = btn.dataset.target;
-            if (state.currentTab === target) return;
-            
-            // UI Update
-            navBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            
-            views.forEach(v => v.classList.remove('active'));
-            document.getElementById(target).classList.add('active');
-            
-            state.currentTab = target;
-            updateHeaderAndFab();
+// ================= NOTIFICATIONS ================= 
+document.getElementById('btnNotifications').addEventListener('click', () => {
+    initAudio();
+    if (Notification.permission === 'default') {
+        Notification.requestPermission().then(p => {
+            state.notificationsEnabled = (p === 'granted');
+            renderNotificationsIcon();
         });
-    });
-
-    fabBtn.addEventListener('click', () => {
-        if (state.currentTab === 'view-timeline') openEventSheet();
-        else if (state.currentTab === 'view-tasks' || state.currentTab === 'view-focus') openTaskSheet();
-    });
-
-    btnToday.addEventListener('click', () => {
-        state.selectedDate = new Date();
-        renderWeekCalendar();
-        renderEvents();
-        if(state.currentTab === 'view-timeline') scrollToCurrentTime();
-    });
-}
-
-function updateHeaderAndFab() {
-    if (state.currentTab === 'view-timeline') {
-        headerTitle.textContent = 'Timeline';
-        headerSubtitle.textContent = state.selectedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        timelineHeaderExt.classList.remove('collapse');
-        fabIcon.textContent = 'add';
-        fabIcon.style.transform = 'rotate(0deg)';
-        fabBtn.style.display = 'flex';
-    } else if (state.currentTab === 'view-tasks') {
-        headerTitle.textContent = 'Daily Goals';
-        headerSubtitle.textContent = 'Organize your mind';
-        timelineHeaderExt.classList.add('collapse');
-        fabIcon.textContent = 'add_task';
-        fabIcon.style.transform = 'rotate(90deg)';
-        fabBtn.style.display = 'flex';
-    } else if (state.currentTab === 'view-focus') {
-        headerTitle.textContent = 'Insights';
-        headerSubtitle.textContent = 'Your daily summary';
-        timelineHeaderExt.classList.add('collapse');
-        fabBtn.style.display = 'none'; // No FAB in focus mode typically
-        updateFocusDashboard();
+    } else if (Notification.permission === 'granted') {
+        playHaptic('chime');
+        alert("Alerts are active. You will be notified 5 mins before blocks start.");
     }
+});
+function renderNotificationsIcon() {
+    const icon = document.getElementById('iconAlert');
+    icon.textContent = state.notificationsEnabled ? 'notifications_active' : 'notifications_off';
+    if(state.notificationsEnabled) icon.classList.add('text-success');
+    else icon.classList.remove('text-success');
 }
 
-// === View 1: Timeline (Advanced Overlap) ===
-function renderWeekCalendar() {
-    weekSlider.innerHTML = '';
-    headerSubtitle.textContent = state.selectedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+// ================= INITIALIZATION ================= 
+function init() {
+    document.body.addEventListener('click', initAudio, { once: true });
+    document.body.addEventListener('touchstart', initAudio, { once: true });
     
-    for (let i = -3; i <= 10; i++) {
-        const d = new Date(state.selectedDate);
-        d.setDate(d.getDate() + i);
-        
-        const card = document.createElement('div');
-        card.className = `day-card haptic ${d.toDateString() === state.selectedDate.toDateString() ? 'active' : ''}`;
-        if (d.toDateString() === new Date().toDateString() && !card.classList.contains('active')) {
-            card.style.border = '1px solid var(--text-secondary)';
-        }
-
-        card.innerHTML = `
-            <span class="day-name">${d.toLocaleDateString('en-US', { weekday: 'short' })}</span>
-            <span class="day-num">${d.getDate()}</span>
-        `;
-        
-        card.onclick = () => {
-            playHaptic('tick');
-            state.selectedDate = d;
-            renderWeekCalendar();
-            renderEvents();
-            card.scrollIntoView({ behavior: 'smooth', inline: 'center' });
-            updateHeaderAndFab(); // update month text
-        };
-        weekSlider.appendChild(card);
-    }
-}
-
-function renderTimelineGrid() {
-    timelineGrid.innerHTML = '';
+    // Build Timeline grid 0-23
+    grid.innerHTML = '';
     for (let i = 0; i < 24; i++) {
         const row = document.createElement('div');
         row.className = 'hour-row';
         const label = document.createElement('div');
         label.className = 'time-label';
-        label.textContent = i === 0 ? '' : `${i%12||12} ${i>=12?'PM':'AM'}`;
+        label.textContent = `${i.toString().padStart(2, '0')}:00`;
         row.appendChild(label);
-        timelineGrid.appendChild(row);
+        grid.appendChild(row);
     }
-}
 
-function scrollToCurrentTime() {
-    if (new Date().toDateString() === state.selectedDate.toDateString()) {
-        const now = new Date();
-        const mins = now.getHours() * 60 + now.getMinutes();
-        timelineContainer.scrollTop = Math.max(0, (mins * PIXELS_PER_MINUTE) - 150);
-    }
+    // Interactive BG for adding an event via tap on grid
+    const bgClick = document.createElement('div');
+    bgClick.className = 'timeline-interactive-bg';
+    eventsContainer.parentElement.appendChild(bgClick);
+    bgClick.addEventListener('click', (e) => {
+        const rect = bgClick.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        const clickedMinutes = Math.floor(y / PIXELS_PER_MINUTE);
+        let h = Math.floor(clickedMinutes / 60);
+        let m = clickedMinutes % 60;
+        m = Math.floor(m / 5) * 5; // snap to 5 mins
+        const startStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+        
+        let endM = m + 60; // default 1 hour
+        let endH = h + Math.floor(endM / 60);
+        endM = endM % 60;
+        if(endH > 23) { endH = 23; endM = 59; }
+        const endStr = `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`;
+
+        openEventModal({ title: '', start: startStr, end: endStr, color: EVENT_COLORS[0].id });
+    });
+
+    renderColorPicker();
+    renderDayStats();
+    renderEvents();
+    renderTasks();
+    renderHabits();
+    renderNotificationsIcon();
+    
+    updateCurrentTimeIndicator();
+    setInterval(updateCurrentTimeIndicator, 60000); // Check alarms here
+
+    // Listeners for modsls and nav
+    fabBtn.addEventListener('click', () => {
+        playHaptic('tick');
+        if (state.activeTab === 'view-tasks') {
+            document.getElementById('taskFormMode').value = 'task';
+            document.getElementById('taskModalTitle').textContent = 'New Goal';
+            addTaskSheet.classList.remove('hidden');
+            setTimeout(() => document.getElementById('taskInputTitle').focus(), 300);
+        } else {
+            openEventModal();
+        }
+    });
+
+    document.querySelectorAll('.close-sheet-btn').forEach(btn => {
+         btn.addEventListener('click', () => {
+             playHaptic('tick');
+             addEventSheet.classList.add('hidden');
+             addTaskSheet.classList.add('hidden');
+         });
+    });
+
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            playHaptic('tick');
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const targetId = btn.getAttribute('data-target');
+            document.querySelectorAll('.view-section').forEach(s => s.classList.remove('active'));
+            document.getElementById(targetId).classList.add('active');
+            state.activeTab = targetId;
+            fabBtn.style.transform = targetId === 'view-focus' ? 'scale(0)' : 'scale(1)';
+            
+            // Layout specific adaptations
+            const ext = document.getElementById('timelineHeaderExt');
+            if(targetId === 'view-timeline') ext.classList.remove('collapse');
+            else ext.classList.add('collapse');
+        });
+    });
+
+    eventForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        playHaptic('pop');
+        const id = document.getElementById('editingEventId').value;
+        const newEvent = {
+            id: id || Date.now().toString(),
+            title: document.getElementById('eventTitle').value,
+            start: document.getElementById('startTime').value,
+            end: document.getElementById('endTime').value,
+            color: state.selectedColor
+        };
+        
+        if (id) {
+            const idx = state.events.findIndex(ev => ev.id === id);
+            if (idx > -1) state.events[idx] = newEvent;
+        } else {
+            state.events.push(newEvent);
+        }
+        
+        saveData();
+        renderEvents();
+        addEventSheet.classList.add('hidden');
+    });
+
+    document.getElementById('btnDeleteEvent').addEventListener('click', () => {
+        playHaptic('tick');
+        const id = document.getElementById('editingEventId').value;
+        state.events = state.events.filter(ev => ev.id !== id);
+        saveData();
+        renderEvents();
+        addEventSheet.classList.add('hidden');
+    });
 }
 
 function updateCurrentTimeIndicator() {
     const now = new Date();
-    if (now.toDateString() === state.selectedDate.toDateString()) {
-        currentTimeLine.style.display = 'block';
-        currentTimeLine.style.top = `${(now.getHours() * 60 + now.getMinutes()) * PIXELS_PER_MINUTE}px`;
-    } else {
-        currentTimeLine.style.display = 'none';
+    const currentMins = now.getHours() * 60 + now.getMinutes();
+    timeLine.style.top = `${currentMins * PIXELS_PER_MINUTE}px`;
+    timeLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    // Web Alarms checking
+    if (state.notificationsEnabled && Notification.permission === 'granted') {
+        const hh = now.getHours().toString().padStart(2, '0');
+        const mm = now.getMinutes().toString().padStart(2, '0');
+        const nowStr = `${hh}:${mm}`;
+        
+        // Target time 5 mins from now
+        const t5 = new Date(now.getTime() + 5 * 60000);
+        const t5Str = `${t5.getHours().toString().padStart(2, '0')}:${t5.getMinutes().toString().padStart(2, '0')}`;
+
+        state.events.forEach(ev => {
+            if (ev.start === t5Str) {
+                playHaptic('chime');
+                new Notification(`Up Next in 5 mins: ${ev.title}`, { body: "Time to wrap up and prepare for focus." });
+            } else if (ev.start === nowStr) {
+                playHaptic('chime');
+                new Notification(`Starting Now: ${ev.title}`, { body: "Let's go!" });
+            }
+        });
     }
 }
 
-// Algorithm to calculate overlapping blocks
+// ================= TIMELINE OVERLAPPING ALGORITHM & RENDER ================= 
+function renderColorPicker() {
+    colorPicker.innerHTML = '';
+    EVENT_COLORS.forEach(c => {
+        const div = document.createElement('div');
+        div.className = `color-option ${state.selectedColor === c.id ? 'active' : ''}`;
+        div.style.backgroundColor = c.raw;
+        div.style.setProperty('--color-raw', c.raw);
+        div.addEventListener('click', () => {
+            playHaptic('tick');
+            state.selectedColor = c.id;
+            renderColorPicker();
+        });
+        colorPicker.appendChild(div);
+    });
+}
+
+function timeToMins(timeStr) {
+    const [h, m] = timeStr.split(':').map(Number);
+    return h * 60 + m;
+}
+function minsToTime(mins) {
+    let h = Math.floor(mins / 60);
+    let m = mins % 60;
+    if(h > 23) { h=23; m=59; } // cap to end of day
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+}
+
 function calculateOverlaps(eventsArray) {
-    if (eventsArray.length === 0) return [];
-    
-    // Sort by start time, then duration
-    let sorted = [...eventsArray].map(e => {
-        const [sh, sm] = e.start.split(':').map(Number);
-        const [eh, em] = e.end.split(':').map(Number);
-        return { ...e, startMin: sh*60+sm, endMin: eh*60+em, duration: (eh*60+em)-(sh*60+sm) };
-    }).sort((a, b) => a.startMin - b.startMin || b.duration - a.duration);
-    
+    const sorted = [...eventsArray].sort((a, b) => timeToMins(a.start) - timeToMins(b.start));
     let columns = [];
-    let lastEventEnding = null;
-
-    for (let i = 0; i < sorted.length; i++) {
-        let ev = sorted[i];
-        if (lastEventEnding !== null && ev.startMin >= lastEventEnding) {
-            packEvents(columns);
-            columns = [];
-            lastEventEnding = null;
-        }
-
+    
+    sorted.forEach(evt => {
+        const startMins = timeToMins(evt.start);
         let placed = false;
-        for (let j = 0; j < columns.length; j++) {
-            let col = columns[j];
-            if (col[col.length - 1].endMin <= ev.startMin) {
-                col.push(ev);
+        for (let i = 0; i < columns.length; i++) {
+            const lastEvt = columns[i][columns[i].length - 1];
+            if (timeToMins(lastEvt.end) <= startMins) {
+                columns[i].push(evt);
+                evt.colIndex = i;
                 placed = true;
                 break;
             }
         }
-        if (!placed) columns.push([ev]);
-        
-        if (lastEventEnding === null || ev.endMin > lastEventEnding) lastEventEnding = ev.endMin;
-    }
-    if (columns.length > 0) packEvents(columns);
-    
-    function packEvents(cols) {
-        let numCols = cols.length;
-        for (let i = 0; i < numCols; i++) {
-            let col = cols[i];
-            for (let j = 0; j < col.length; j++) {
-                let ev = col[j];
-                ev.colSpan = numCols;
-                ev.colIndex = i;
+        if (!placed) {
+            evt.colIndex = columns.length;
+            columns.push([evt]);
+        }
+    });
+
+    sorted.forEach(evt => {
+        const startMins = timeToMins(evt.start);
+        const endMins = timeToMins(evt.end);
+        let overlappingCols = 0;
+        for (let i = 0; i < columns.length; i++) {
+            if (columns[i].some(e => timeToMins(e.start) < endMins && timeToMins(e.end) > startMins)) {
+                overlappingCols++;
             }
         }
-    }
+        evt.maxCols = Math.max(overlappingCols, 1);
+    });
     
     return sorted;
 }
 
 function renderEvents() {
     eventsContainer.innerHTML = '';
-    const dateStr = formatDateStr(state.selectedDate);
-    const todaysEvents = state.events.filter(e => e.date === dateStr);
     
-    const processedEvents = calculateOverlaps(todaysEvents);
-    
-    processedEvents.forEach(e => {
-        if (e.duration <= 0) return;
-        
+    // Calculate total time blocked stats
+    let totalMins = 0;
+    const processEvents = calculateOverlaps(state.events);
+
+    processEvents.forEach(evt => {
+        const startMins = timeToMins(evt.start);
+        const endMins = timeToMins(evt.end);
+        const duration = endMins - startMins;
+        totalMins += duration;
+
         const block = document.createElement('div');
-        block.className = 'event-block haptic';
+        block.className = 'event-block';
         
-        // Overlap Math
-        const widthPercent = 100 / e.colSpan;
-        const leftPercent = widthPercent * e.colIndex;
+        const widthPercent = (100 / evt.maxCols);
+        const leftPercent = (evt.colIndex * widthPercent);
+
+        block.style.top = `${startMins * PIXELS_PER_MINUTE}px`;
+        block.style.height = `${duration * PIXELS_PER_MINUTE}px`;
+        block.style.width = `calc(${widthPercent}% - 6px)`;
+        block.style.left = `calc(${leftPercent}% + 2px)`; // Padding adjustment
+        block.style.backgroundColor = EVENT_COLORS.find(c => c.id === evt.color)?.raw || EVENT_COLORS[0].raw;
+        block.style.zIndex = evt.colIndex + 10;
         
-        block.style.top = `${e.startMin * PIXELS_PER_MINUTE}px`;
-        block.style.height = `${e.duration * PIXELS_PER_MINUTE}px`;
-        block.style.width = `calc(${widthPercent}% - 4px)`;
-        block.style.left = `calc(${leftPercent}% + 2px)`; // +2px for small gap
+        const titleEl = document.createElement('div');
+        titleEl.className = 'event-title';
+        titleEl.textContent = evt.title;
         
-        const colorObj = colors.find(c => c.id === e.color) || colors[0];
-        block.style.background = colorObj.bg;
+        const timeEl = document.createElement('div');
+        timeEl.className = 'event-time';
+        timeEl.textContent = `${evt.start} - ${evt.end}`;
+
+        const resizer = document.createElement('div');
+        resizer.className = 'resizer-handle';
+
+        block.appendChild(titleEl);
+        block.appendChild(timeEl);
+        block.appendChild(resizer);
         
-        let content = `<div class="event-title">${e.title}</div>`;
-        if (e.duration >= 30) content += `<div class="event-time">${e.start} - ${e.end}</div>`;
-        block.innerHTML = content;
-        
-        block.onclick = (event) => {
-            event.stopPropagation();
-            playHaptic('tick');
-            openEventSheet(e.id);
-        };
-        
+        // Touch Drag Events
+        enableDragAndResize(block, evt);
+
         eventsContainer.appendChild(block);
+    });
+
+    document.getElementById('statTimeBlocked').innerHTML = `${Math.floor(totalMins/60)}<span class="unit">h</span> ${totalMins%60}<span class="unit">m</span>`;
+}
+
+// ================= DRAG & DROP / RESIZE ================= 
+let isDragging = false, isResizing = false;
+let startTouchY = 0, initialTop = 0, initialHeight = 0;
+let dragTimer = null;
+
+function enableDragAndResize(block, evtObj) {
+    const resizer = block.querySelector('.resizer-handle');
+    
+    // Tap to Edit / Long Press to Drag
+    block.addEventListener('touchstart', (e) => {
+        if (e.target.classList.contains('resizer-handle')) return; // handled separately
+        e.stopPropagation(); // don't click map
+        
+        startTouchY = e.touches[0].clientY;
+        initialTop = parseFloat(block.style.top);
+        
+        dragTimer = setTimeout(() => {
+            isDragging = true;
+            block.classList.add('dragging');
+            playHaptic('tick');
+        }, 300); // 300ms long press avoids immediate drag while scrolling
+    }, {passive: false});
+
+    block.addEventListener('touchmove', (e) => {
+        if (!isDragging) {
+            clearTimeout(dragTimer); // Move meant scrolling, cancel long press
+            return;
+        }
+        e.preventDefault(); // stop scrolling
+        const delta = e.touches[0].clientY - startTouchY;
+        let newTop = initialTop + delta;
+        newTop = Math.max(0, newTop); // Don't drag above 00:00
+        block.style.top = `${newTop}px`;
+    }, {passive: false});
+
+    block.addEventListener('touchend', (e) => {
+        clearTimeout(dragTimer);
+        if (!isDragging) {
+            // Was just a normal click to open edit
+            openEventModal(evtObj);
+        } else {
+            // Finish drag
+            isDragging = false;
+            block.classList.remove('dragging');
+            playHaptic('tick');
+            
+            // Re-calculate times based on position. Snap to 5 mins (5px = 5 mins)
+            let newTop = parseFloat(block.style.top);
+            let snapTop = Math.round(newTop / 5) * 5; 
+            const durationMins = timeToMins(evtObj.end) - timeToMins(evtObj.start);
+            
+            evtObj.start = minsToTime(snapTop);
+            evtObj.end = minsToTime(snapTop + durationMins);
+            
+            saveData();
+            renderEvents();
+        }
+    });
+
+    // Resize functionality
+    resizer.addEventListener('touchstart', (e) => {
+        e.stopPropagation();
+        isResizing = true;
+        startTouchY = e.touches[0].clientY;
+        initialHeight = parseFloat(block.style.height);
+        block.classList.add('dragging');
+    }, {passive: false});
+
+    resizer.addEventListener('touchmove', (e) => {
+        if (!isResizing) return;
+        e.preventDefault();
+        const delta = e.touches[0].clientY - startTouchY;
+        let newHeight = initialHeight + delta;
+        newHeight = Math.max(15, newHeight); // min length 15 mins
+        block.style.height = `${newHeight}px`;
+    }, {passive: false});
+
+    resizer.addEventListener('touchend', (e) => {
+        if (!isResizing) return;
+        isResizing = false;
+        block.classList.remove('dragging');
+        playHaptic('tick');
+        
+        let newHeight = parseFloat(block.style.height);
+        let snapHeight = Math.round(newHeight / 5) * 5;
+        const newDuration = snapHeight;
+        
+        evtObj.end = minsToTime(timeToMins(evtObj.start) + newDuration);
+        
+        saveData();
+        renderEvents();
     });
 }
 
-function handleTimelineClick(e) {
-    const rect = timelineGrid.getBoundingClientRect();
-    const clickY = e.clientY - rect.top;
-    let h = Math.floor(clickY / HOUR_HEIGHT);
-    openEventSheet(null, `${h.toString().padStart(2,'0')}:00`, `${(h+1>23?23:h+1).toString().padStart(2,'0')}:00`);
+function openEventModal(eventObj = null) {
+    if (eventObj && typeof eventObj === 'object') {
+        document.getElementById('editingEventId').value = eventObj.id || '';
+        document.getElementById('eventTitle').value = eventObj.title;
+        document.getElementById('startTime').value = eventObj.start;
+        document.getElementById('endTime').value = eventObj.end;
+        state.selectedColor = eventObj.color;
+        
+        if (eventObj.id) {
+            document.getElementById('btnDeleteEvent').classList.remove('hidden');
+            document.getElementById('btnFocusEvent').classList.remove('hidden');
+        } else {
+            document.getElementById('btnDeleteEvent').classList.add('hidden');
+            document.getElementById('btnFocusEvent').classList.add('hidden');
+        }
+    } else {
+        const d = new Date();
+        const start = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+        const end = `${(d.getHours()+1).toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+        
+        document.getElementById('editingEventId').value = '';
+        document.getElementById('eventTitle').value = '';
+        document.getElementById('startTime').value = start;
+        document.getElementById('endTime').value = end;
+        
+        document.getElementById('btnDeleteEvent').classList.add('hidden');
+        document.getElementById('btnFocusEvent').classList.add('hidden');
+    }
+    
+    renderColorPicker();
+    addEventSheet.classList.remove('hidden');
+    setTimeout(() => document.getElementById('eventTitle').focus(), 300);
 }
 
-// === View 2: Tasks ===
+// ================= HABITS & STREAKS ================= 
+function isSameDay(d1, d2) { return d1.toDateString() === d2.toDateString(); }
+
+function calculateStreak(datesArr) {
+    if(!datesArr || datesArr.length === 0) return 0;
+    const dates = datesArr.map(d => new Date(d)).sort((a,b) => b-a);
+    let streak = 0;
+    let currTarget = new Date();
+    
+    // Check if missed today, then maybe target yesterday
+    if (!isSameDay(dates[0], currTarget)) {
+        let yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+        if (isSameDay(dates[0], yesterday)) currTarget = yesterday;
+        else return 0; // Missed yesterday = streak 0
+    }
+    
+    for(let i=0; i<dates.length; i++) {
+        if (isSameDay(dates[i], currTarget)) {
+            streak++;
+            currTarget.setDate(currTarget.getDate() - 1);
+        } else break;
+    }
+    return streak;
+}
+
+document.getElementById('btnAddHabit').addEventListener('click', () => {
+    playHaptic('tick');
+    document.getElementById('taskFormMode').value = 'habit';
+    document.getElementById('taskModalTitle').textContent = 'New Daily Habit';
+    addTaskSheet.classList.remove('hidden');
+    setTimeout(() => document.getElementById('taskInputTitle').focus(), 300);
+});
+
+function renderHabits() {
+    const box = document.getElementById('habitsContainer');
+    box.innerHTML = '';
+    const todayStr = new Date().toDateString();
+    let maxStreak = 0;
+
+    state.habits.forEach(h => {
+        const streak = calculateStreak(h.completedDates);
+        if (streak > maxStreak) maxStreak = streak;
+        const doneToday = h.completedDates.indexOf(todayStr) !== -1;
+
+        const el = document.createElement('div');
+        el.className = `habit-item ${doneToday ? 'done' : ''}`;
+        
+        // Use initial letter as icon
+        const iconLetter = h.title.charAt(0).toUpperCase();
+
+        el.innerHTML = `
+            <div class="habit-icon haptic">
+                <span style="font-size: 1.2rem; font-weight: bold;">${doneToday ? '✓' : iconLetter}</span>
+            </div>
+            <span class="habit-name">${h.title}</span>
+            ${streak > 0 ? `<div class="streak-badge">🔥 ${streak}</div>` : ''}
+        `;
+        
+        el.addEventListener('click', () => {
+             if (doneToday) {
+                 h.completedDates = h.completedDates.filter(d => d !== todayStr);
+                 playHaptic('tick');
+             } else {
+                 h.completedDates.push(todayStr);
+                 playHaptic('pop'); // Big dopamine for hitting habit
+             }
+             saveData(); renderHabits();
+        });
+
+        box.appendChild(el);
+    });
+
+    document.getElementById('statHighestStreak').textContent = maxStreak;
+}
+
+
+// ================= TASKS LIST ================= 
+taskForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    playHaptic('pop');
+    const input = document.getElementById('taskInputTitle');
+    const title = input.value.trim();
+    if (!title) return;
+
+    const mode = document.getElementById('taskFormMode').value;
+    if (mode === 'task') {
+        state.tasks.push({ id: Date.now().toString(), title, completed: false });
+        renderTasks();
+    } else {
+        state.habits.push({ id: Date.now().toString(), title, completedDates: [] });
+        renderHabits();
+    }
+    
+    input.value = '';
+    saveData();
+    addTaskSheet.classList.add('hidden');
+});
+
 function renderTasks() {
-    taskList.innerHTML = '';
-    const total = state.tasks.length;
-    const done = state.tasks.filter(t => t.completed).length;
+    const list = document.getElementById('taskList');
+    list.innerHTML = '';
     
-    taskProgressText.textContent = `${done}/${total} Done`;
-    taskProgressBar.style.width = total === 0 ? '0%' : `${(done/total)*100}%`;
-    
-    if (total === 0) {
-        taskList.innerHTML = `<div class="empty-state"><span class="material-icons-round">done_all</span><p>No goals yet. Clear mind, clear space.</p></div>`;
-        return;
+    if (state.tasks.length === 0) {
+         list.innerHTML = `<div class="empty-state">No goals for today. Add one above!</div>`;
     }
 
-    state.tasks.forEach(t => {
+    state.tasks.forEach(task => {
         const div = document.createElement('div');
-        div.className = `task-item haptic ${t.completed ? 'completed' : ''}`;
+        div.className = `task-item haptic ${task.completed ? 'completed' : ''}`;
         
-        div.onclick = () => {
-            playHaptic('pop'); // nice pop sound for completing task
-            t.completed = !t.completed;
-            saveData();
-            renderTasks();
-        };
-
         div.innerHTML = `
             <div class="checkbox-custom">
-                <span class="material-icons-round" style="font-size: 16px;">check</span>
+                <span class="material-icons-round">check</span>
             </div>
-            <div class="task-title">${t.title}</div>
-            <div class="task-delete haptic" onclick="event.stopPropagation(); deleteTask('${t.id}')">
+            <div class="task-title">${task.title}</div>
+            <div class="task-delete">
                 <span class="material-icons-round">close</span>
             </div>
         `;
-        taskList.appendChild(div);
-    });
-}
-
-function deleteTask(id) {
-    playHaptic('tick');
-    state.tasks = state.tasks.filter(t => t.id !== id);
-    saveData();
-    renderTasks();
-}
-
-// === View 3: Focus Dashboard ===
-function updateFocusDashboard() {
-    const hour = new Date().getHours();
-    let msg = "Good Evening";
-    if (hour < 12) msg = "Good Morning";
-    else if (hour < 18) msg = "Good Afternoon";
-    greetingMsg.textContent = `${msg},`;
-
-    const pendingTasks = state.tasks.filter(t => !t.completed).length;
-    insightTodoCount.textContent = `${pendingTasks} target${pendingTasks!==1?'s':''}`;
-
-    // Calculate time blocked today
-    const dateStr = formatDateStr(new Date()); // today real date
-    const todaysEvents = state.events.filter(e => e.date === dateStr);
-    let totalMins = 0;
-    todaysEvents.forEach(e => {
-        const [sh, sm] = e.start.split(':').map(Number);
-        const [eh, em] = e.end.split(':').map(Number);
-        totalMins += ((eh*60+em)-(sh*60+sm));
+        
+        div.addEventListener('click', (e) => {
+            if (e.target.closest('.task-delete')) {
+                state.tasks = state.tasks.filter(t => t.id !== task.id);
+                playHaptic('tick');
+            } else {
+                task.completed = !task.completed;
+                playHaptic(task.completed ? 'pop' : 'tick');
+            }
+            saveData();
+            renderTasks();
+        });
+        
+        list.appendChild(div);
     });
     
-    const hours = (totalMins / 60).toFixed(1);
-    document.getElementById('statTimeBlocked').innerHTML = `${hours}<span class="unit">h</span>`;
-    
-    const doneTasks = state.tasks.filter(t => t.completed).length;
-    document.getElementById('statTasksDone').textContent = doneTasks;
+    // Update Focus View text
+    const pending = state.tasks.filter(t => !t.completed).length;
+    document.getElementById('insightTodoCount').textContent = pending === 0 ? "0 items" : 
+        pending === 1 ? "1 item" : `${pending} items`;
+
+    // Progress Bar
+    const total = state.tasks.length;
+    const completedCount = total - pending;
+    document.getElementById('taskProgressText').textContent = `${completedCount}/${total}`;
+    document.getElementById('taskProgressBar').style.width = total === 0 ? '0%' : `${(completedCount/total)*100}%`;
 }
 
-// === Form Modals ===
-function setupModals() {
-    document.querySelectorAll('.close-sheet-btn').forEach(b => b.onclick = closeModals);
-    document.querySelectorAll('.close-task-btn').forEach(b => b.onclick = closeModals);
-    
-    eventForm.onsubmit = handleSaveEvent;
-    document.getElementById('btnDeleteEvent').onclick = () => {
-        const id = document.getElementById('editingEventId').value;
-        if(id) {
-            state.events = state.events.filter(e => e.id !== id);
-            saveData(); renderEvents(); closeModals(); playHaptic('pop');
-        }
-    };
 
-    taskForm.onsubmit = (e) => {
-        e.preventDefault();
-        const title = document.getElementById('taskInputTitle').value.trim();
-        if(title) {
-            state.tasks.push({ id: Date.now().toString(), title, completed: false });
-            saveData(); renderTasks(); closeModals(); playHaptic('pop');
-        }
-    };
-}
+// ================= FOCUS POMODORO MODE ================= 
+const focusOverlay = document.getElementById('focusOverlay');
+const pomTimerTxt = document.getElementById('pomodoroTimeText');
+const pomProgress = document.getElementById('pomodoroProgress');
+let pomInterval = null;
+let pomSecondsLeft = 0;
+let pomTotalSeconds = 0;
+let pomIsPaused = false;
 
-function closeModals() {
+document.getElementById('btnFocusEvent').addEventListener('click', () => {
+    // Open focus mode
+    playHaptic('pop');
     addEventSheet.classList.add('hidden');
-    addTaskSheet.classList.add('hidden');
-    document.activeElement.blur();
-}
-
-function openEventSheet(editId = null, defaultStart = '', defaultEnd = '') {
-    playHaptic('tick');
-    addEventSheet.classList.remove('hidden');
-    const titleInp = document.getElementById('eventTitle');
-    const startInp = document.getElementById('startTime');
-    const endInp = document.getElementById('endTime');
-    const idInp = document.getElementById('editingEventId');
-    const delBtn = document.getElementById('btnDeleteEvent');
-
-    if (editId) {
-        const e = state.events.find(x => x.id === editId);
-        titleInp.value = e.title;
-        startInp.value = e.start;
-        endInp.value = e.end;
-        idInp.value = editId;
-        setColorPicker(e.color);
-        delBtn.classList.remove('hidden');
-    } else {
-        titleInp.value = '';
-        if(!defaultStart) {
-            const now = new Date();
-            defaultStart = `${now.getHours().toString().padStart(2,'0')}:00`;
-            defaultEnd = `${(now.getHours()+1>23?23:now.getHours()+1).toString().padStart(2,'0')}:00`;
-        }
-        startInp.value = defaultStart;
-        endInp.value = defaultEnd;
-        idInp.value = '';
-        setColorPicker(colors[0].id);
-        delBtn.classList.add('hidden');
-    }
-    setTimeout(() => titleInp.focus(), 300); // Wait for animation
-}
-
-function openTaskSheet() {
-    playHaptic('tick');
-    addTaskSheet.classList.remove('hidden');
-    const inp = document.getElementById('taskInputTitle');
-    inp.value = '';
-    setTimeout(() => inp.focus(), 300);
-}
-
-function handleSaveEvent(e) {
-    e.preventDefault();
-    const title = document.getElementById('eventTitle').value.trim();
-    const start = document.getElementById('startTime').value;
-    const end = document.getElementById('endTime').value;
+    
     const id = document.getElementById('editingEventId').value;
-    const color = document.querySelector('.color-option.active').dataset.id;
+    const ev = state.events.find(e => e.id === id);
+    if(!ev) return;
+
+    document.getElementById('focusTaskName').textContent = ev.title;
     
-    if (start >= end) { alert("End time must be after Start time."); return; }
+    // Init timer (Get duration in minutes)
+    const durMins = timeToMins(ev.end) - timeToMins(ev.start);
+    pomTotalSeconds = durMins * 60;
+    pomSecondsLeft = pomTotalSeconds;
+    pomIsPaused = false;
     
-    const dateStr = formatDateStr(state.selectedDate);
-    if (id) {
-        const idx = state.events.findIndex(x => x.id === id);
-        if (idx !== -1) state.events[idx] = { id, title, start, end, color, date: dateStr };
+    updatePomodoroDisplay();
+
+    focusOverlay.classList.remove('hidden');
+    
+    clearInterval(pomInterval);
+    pomInterval = setInterval(() => {
+        if(!pomIsPaused && pomSecondsLeft > 0) {
+            pomSecondsLeft--;
+            updatePomodoroDisplay();
+            if(pomSecondsLeft === 0) {
+                playHaptic('chime');
+                clearInterval(pomInterval);
+            }
+        }
+    }, 1000);
+});
+
+function updatePomodoroDisplay() {
+    let m = Math.floor(pomSecondsLeft / 60);
+    let s = pomSecondsLeft % 60;
+    pomTimerTxt.textContent = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    
+    // Dasharray is 565.48 max. Inverse dash offset for progress.
+    const maxDash = 565.48;
+    const percent = pomSecondsLeft / pomTotalSeconds;
+    pomProgress.style.strokeDashoffset = maxDash - (maxDash * percent);
+}
+
+document.getElementById('btnToggleFocus').addEventListener('click', (e) => {
+    playHaptic('tick');
+    pomIsPaused = !pomIsPaused;
+    const icon = document.getElementById('focusPlayIcon');
+    const btn = e.currentTarget;
+    if(pomIsPaused) {
+        icon.textContent = "play_arrow";
+        btn.classList.remove('pause'); btn.classList.add('play');
+        document.getElementById('focusPhaseText').textContent = 'paused';
     } else {
-        state.events.push({ id: Date.now().toString(), title, start, end, color, date: dateStr });
+        icon.textContent = "pause";
+        btn.classList.add('pause'); btn.classList.remove('play');
+        document.getElementById('focusPhaseText').textContent = 'time to focus';
     }
+});
+
+document.getElementById('btnExitFocus').addEventListener('click', () => {
+    playHaptic('tick');
+    clearInterval(pomInterval);
+    focusOverlay.classList.add('hidden');
+});
+
+// ================= UTILITIES ================= 
+function renderDayStats() {
+    const d = new Date();
+    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
     
-    saveData(); renderEvents(); closeModals(); playHaptic('pop');
+    headerTitle.textContent = "Timeline";
+    headerSubtitle.textContent = `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
+    
+    const h = d.getHours();
+    let msg = "Good Evening,";
+    if(h < 12) msg = "Good Morning,";
+    else if(h < 18) msg = "Good Afternoon,";
+    document.getElementById('greetingMsg').textContent = msg;
+
+    // Build top week slider (Dummy visual slider showing current week around today)
+    const weekWrap = document.getElementById('weekSlider');
+    weekWrap.innerHTML = '';
+    for(let i=-2; i<=4; i++) {
+        let loopDate = new Date();
+        loopDate.setDate(d.getDate() + i);
+        
+        let card = document.createElement('div');
+        card.className = `day-card haptic ${i===0 ? 'active' : ''}`;
+        card.innerHTML = `<div class="day-name">${days[loopDate.getDay()].substr(0,3)}</div><div class="day-num">${loopDate.getDate()}</div>`;
+        weekWrap.appendChild(card);
+    }
 }
 
-// Helpers
-function formatDateStr(d) {
-    const year = d.getFullYear(); let month = (d.getMonth() + 1).toString().padStart(2, '0'); let day = d.getDate().toString().padStart(2, '0');
-    return `${year}-${month}-${day}`;
+function saveData() {
+    localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(state.events));
+    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(state.tasks));
+    localStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(state.habits));
 }
 
-function populateColorPicker() {
-    colorPicker.innerHTML = '';
-    colors.forEach((c, idx) => {
-        const div = document.createElement('div');
-        div.className = `color-option haptic ${idx === 0 ? 'active' : ''}`;
-        div.dataset.id = c.id;
-        div.style.background = c.bg;
-        div.style.setProperty('--color-raw', c.raw);
-        div.onclick = () => {
-            playHaptic('tick');
-            document.querySelectorAll('.color-option').forEach(o => o.classList.remove('active'));
-            div.classList.add('active');
-        };
-        colorPicker.appendChild(div);
-    });
-}
-function setColorPicker(id) {
-    document.querySelectorAll('.color-option').forEach(o => o.classList.remove('active'));
-    const el = document.querySelector(`.color-option[data-id="${id}"]`);
-    if(el) el.classList.add('active');
-    else document.querySelector('.color-option').classList.add('active');
-}
-
-// Fire
-init();
+document.addEventListener('DOMContentLoaded', init);
