@@ -56,6 +56,9 @@ const addHabitSheet = document.getElementById('addHabitSheet');
 const addFinanceSheet = document.getElementById('addFinanceSheet');
 
 const fabBtn = document.getElementById('fabBtn');
+const btnExport = document.getElementById('btnExport');
+const btnImport = document.getElementById('btnImport');
+const importFileInput = document.getElementById('importFileInput');
 
 document.getElementById('btnNotifications').addEventListener('click', () => {
     initAudio();
@@ -145,8 +148,44 @@ function init() {
         });
     });
 
-    // Forms
-    document.getElementById('eventForm').addEventListener('submit', (e) => {
+        // Backup / Restore Logic
+        btnExport.addEventListener('click', () => {
+            playHaptic('tick');
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state));
+            const downloadNode = document.createElement('a');
+            downloadNode.setAttribute("href", dataStr);
+            downloadNode.setAttribute("download", `lifeos_backup_${new Date().toISOString().slice(0,10)}.json`);
+            document.body.appendChild(downloadNode);
+            downloadNode.click();
+            downloadNode.remove();
+        });
+    
+        btnImport.addEventListener('click', () => { playHaptic('tick'); importFileInput.click(); });
+    
+        importFileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const parsed = JSON.parse(event.target.result);
+                    if(parsed.events || parsed.tasks || parsed.habits || parsed.transactions || parsed.journal) {
+                        playHaptic('chime');
+                        state.events = parsed.events || []; state.tasks = parsed.tasks || [];
+                        state.habits = parsed.habits || []; state.transactions = parsed.transactions || [];
+                        state.journal = parsed.journal || [];
+                        saveData();
+                        renderEvents(); renderTasks(); renderHabits(); renderFinance(); renderJournal();
+                        alert("✅ Data Restored Successfully! Welcome back.");
+                    } else alert("❌ Invalid backup file format.");
+                } catch (err) { alert("❌ Error reading backup file."); }
+            };
+            reader.readAsText(file);
+            e.target.value = '';
+        });
+    
+        // Forms
+        document.getElementById('eventForm').addEventListener('submit', (e) => {
         e.preventDefault(); playHaptic('pop');
         const id = document.getElementById('editingEventId').value;
         const evt = {
