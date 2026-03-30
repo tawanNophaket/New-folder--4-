@@ -459,13 +459,45 @@ g('btnExport').addEventListener('click',()=>{
 g('btnImport').addEventListener('click',()=>{playHaptic('tick');g('importFileInput').click();});
 g('importFileInput').addEventListener('change',e=>{
   const file=e.target.files[0];if(!file)return;
+  if(!file.name.endsWith('.json')){showToast('Please select a .json backup file','danger','❌');e.target.value='';return;}
   const r=new FileReader();
-  r.onload=ev=>{try{
-    const p=JSON.parse(ev.target.result);
-    if(p.events||p.tasks){state.events=p.events||[];state.tasks=p.tasks||[];state.habits=p.habits||[];state.transactions=p.transactions||[];state.journal=p.journal||[];state.notes=p.notes||[];if(p.gamify)state.gamify=p.gamify;saveData();renderAll();showToast('Data restored!','success','✅');}
-    else showToast('Invalid backup file','danger','❌');
-  }catch{showToast('Could not read file','danger','❌');}};
-  r.readAsText(file);e.target.value='';
+  r.onload=ev=>{
+    try{
+      const p=JSON.parse(ev.target.result);
+      // Accept if has ANY known field
+      const hasData=p.events||p.tasks||p.habits||p.transactions||p.journal||p.notes||p.gamify||p.rewards;
+      if(!hasData){showToast('Invalid backup file — no data found','danger','❌');return;}
+      // Restore all fields with fallbacks
+      state.events       = p.events        || [];
+      state.tasks        = p.tasks         || [];
+      state.habits       = p.habits        || [];
+      state.transactions = p.transactions  || [];
+      state.journal      = p.journal       || [];
+      state.notes        = p.notes         || [];
+      state.rewards      = p.rewards       || state.rewards;
+      state.subscriptions= p.subscriptions || [];
+      state.archivedTasks= p.archivedTasks || [];
+      if(p.financeMeta)  state.financeMeta = p.financeMeta;
+      if(p.gamify){
+        state.gamify = p.gamify;
+        // Ensure new fields exist after restore
+        if(!state.gamify.activeTheme)   state.gamify.activeTheme='default';
+        if(!state.gamify.unlockedThemes)state.gamify.unlockedThemes=['default'];
+        if(!state.gamify.coins)         state.gamify.coins=0;
+      }
+      // Migrate old tasks
+      state.tasks.forEach(t=>{if(!t.priority)t.priority='med';if(!t.recur)t.recur='none';});
+      document.body.setAttribute('data-theme',state.gamify.activeTheme||'default');
+      saveData();renderAll();
+      showToast(`Restored! ${state.tasks.length} tasks, ${state.habits.length} habits, ${state.transactions.length} transactions`,'success','✅');
+    }catch(err){
+      console.error('Import error:',err);
+      showToast('File could not be read — make sure it is a LifeOS backup','danger','❌');
+    }
+  };
+  r.onerror=()=>showToast('Failed to read file','danger','❌');
+  r.readAsText(file,'UTF-8');
+  e.target.value='';
 });
 
 // ===== RENDER HEADER =====
