@@ -1,655 +1,507 @@
-const STORAGE_KEYS = { EVENTS: 'ul_events', TASKS: 'ul_tasks', HABITS: 'ul_habits', FINANCE: 'ul_finance', JOURNAL: 'ul_journal', NOTES: 'ul_notes', GAMIFY: 'ul_gamify', REWARDS: 'ul_rewards' };
-const EVENT_COLORS = [
-    { id: 'brand', raw: '#8B5CF6' }, { id: 'cyan', raw: '#06B6D4' },
-    { id: 'rose', raw: '#F43F5E' }, { id: 'amber', raw: '#F59E0B' },
-    { id: 'emerald', raw: '#10B981' }, { id: 'indigo', raw: '#6366F1' }
-];
-const PIXELS_PER_MINUTE = 1;
+// ===== STORAGE & STATE =====
+const SK = { E:'ul_ev',T:'ul_tk',H:'ul_hb',F:'ul_fi',J:'ul_jo',N:'ul_nt',G:'ul_gm',R:'ul_rw',S:'ul_sb',FM:'ul_fm',A:'ul_ar',LR:'ul_lastRun' };
+const EVT_COLORS = [{id:'brand',raw:'#7C3AED'},{id:'cyan',raw:'#06B6D4'},{id:'rose',raw:'#F43F5E'},{id:'amber',raw:'#F59E0B'},{id:'emerald',raw:'#10B981'},{id:'indigo',raw:'#6366F1'}];
+const CAT_ICONS = {food:'🍜',transport:'🚌',shopping:'🛍️',health:'❤️',entertainment:'🎮',bills:'💡',salary:'💼',other:'📦'};
+
+// ===== TOAST SYSTEM =====
+function showToast(msg, type='success', emoji='✅') {
+  let container = document.querySelector('.toast-container');
+  if(!container) { container = document.createElement('div'); container.className='toast-container'; document.body.appendChild(container); }
+  const t = document.createElement('div'); t.className=`toast ${type}`;
+  t.innerHTML = `<span style="font-size:1.1rem">${emoji}</span><span>${msg}</span>`;
+  container.appendChild(t);
+  setTimeout(() => { t.style.animation='toastOut 0.3s var(--ease-in-out) forwards'; setTimeout(()=>t.remove(), 300); }, 2800);
+}
+const THEMES = [{id:'default',name:'Midnight',cost:0,color:'#8B5CF6'},{id:'cyberpunk',name:'Cyberpunk 2077',cost:500,color:'#EAB308'},{id:'sakura',name:'Sakura Zen',cost:500,color:'#F472B6'},{id:'bloodmoon',name:'Blood Moon',cost:1000,color:'#DC2626'}];
+
+const g = id => document.getElementById(id);
+const load = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
 
 let state = {
-    events: JSON.parse(localStorage.getItem(STORAGE_KEYS.EVENTS)) || [],
-    tasks: JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS)) || [], // {id, title, status, priority}
-    habits: JSON.parse(localStorage.getItem(STORAGE_KEYS.HABITS)) || [],
-    transactions: JSON.parse(localStorage.getItem(STORAGE_KEYS.FINANCE)) || [],
-    journal: JSON.parse(localStorage.getItem(STORAGE_KEYS.JOURNAL)) || [],
-    notes: JSON.parse(localStorage.getItem(STORAGE_KEYS.NOTES)) || [], // {id, title, content, updated}
-    gamify: JSON.parse(localStorage.getItem(STORAGE_KEYS.GAMIFY)) || { xp: 0, level: 1, coins: 0 },
-    rewards: JSON.parse(localStorage.getItem(STORAGE_KEYS.REWARDS)) || [{id: 'r1', name: 'Play Game 1 hr 🎮', cost: 150}, {id: 'r2', name: 'Buy a Treat 🍰', cost: 300}],
-    selectedColor: EVENT_COLORS[0].id,
-    activeTab: 'view-timeline',
-    notificationsEnabled: Notification.permission === 'granted'
+  events: load(SK.E)||[], tasks: load(SK.T)||[], habits: load(SK.H)||[],
+  transactions: load(SK.F)||[], journal: load(SK.J)||[], notes: load(SK.N)||[],
+  gamify: load(SK.G)||{xp:0,level:1,coins:0,activeTheme:'default',unlockedThemes:['default']},
+  rewards: load(SK.R)||[{id:'r1',name:'Play Game 1hr 🎮',cost:150},{id:'r2',name:'Buy a Treat 🍰',cost:300}],
+  subscriptions: load(SK.S)||[], financeMeta: load(SK.FM)||{budget:15000},
+  archivedTasks: load(SK.A)||[], selectedColor: EVT_COLORS[0].id,
+  activeTab:'view-timeline', finFilter:'all', notificationsEnabled: Notification.permission==='granted'
 };
-
-// Data Migration
-state.tasks.forEach(t => { if(!t.priority) t.priority = 'med'; });
-
-// ================= GAMIFICATION & HAPTICS ================= 
-let audioCtx;
-function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
-function playHaptic(type = 'tick') {
-    if (!audioCtx || audioCtx.state === 'suspended') return;
-    const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
-    osc.connect(gain); gain.connect(audioCtx.destination);
-    const now = audioCtx.currentTime;
-    if (type === 'tick') {
-        osc.frequency.setValueAtTime(150, now); osc.frequency.exponentialRampToValueAtTime(0.01, now + 0.05);
-        gain.gain.setValueAtTime(0.5, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
-        osc.start(now); osc.stop(now + 0.05);
-    } else if (type === 'pop') {
-        osc.frequency.setValueAtTime(400, now); osc.frequency.exponentialRampToValueAtTime(800, now + 0.1);
-        gain.gain.setValueAtTime(0.8, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
-        osc.type = 'sine'; osc.start(now); osc.stop(now + 0.1);
-    } else if (type === 'chime') {
-        osc.frequency.setValueAtTime(800, now); osc.frequency.exponentialRampToValueAtTime(400, now + 0.5);
-        gain.gain.setValueAtTime(0.6, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
-        osc.type = 'triangle'; osc.start(now); osc.stop(now + 0.5);
-    } else if (type === 'levelup') {
-        osc.frequency.setValueAtTime(400, now); osc.frequency.linearRampToValueAtTime(600, now + 0.2); osc.frequency.linearRampToValueAtTime(1000, now + 0.5);
-        gain.gain.setValueAtTime(0.5, now); gain.gain.linearRampToValueAtTime(0, now + 0.6);
-        osc.type = 'square'; osc.start(now); osc.stop(now + 0.6);
-    }
-}
-
-function renderGamification() {
-    const nextLimit = state.gamify.level * 100;
-    while(state.gamify.xp >= nextLimit) {
-        state.gamify.xp -= nextLimit;
-        state.gamify.level++;
-        triggerConfetti();
-        playHaptic('levelup');
-    }
-    const realLimit = state.gamify.level * 100;
-    document.getElementById('levelText').textContent = state.gamify.level;
-    document.getElementById('xpText').textContent = `(${state.gamify.xp}/${realLimit} XP)`;
-    document.getElementById('expFill').style.width = `${(state.gamify.xp / realLimit) * 100}%`;
-    document.getElementById('coinText').textContent = state.gamify.coins || 0;
-    if(document.getElementById('shopCoinText')) document.getElementById('shopCoinText').textContent = state.gamify.coins || 0;
-}
-
-function addXP(amt, addC = true) {
-    state.gamify.xp += amt;
-    if (addC) { if(!state.gamify.coins) state.gamify.coins = 0; state.gamify.coins += amt; }
-    renderGamification();
-    saveData();
-}
-
-function triggerConfetti() {
-    const ov = document.getElementById('confettiOverlay');
-    ov.classList.remove('hidden'); ov.innerHTML = '';
-    const colors = ['#8B5CF6', '#06B6D4', '#F43F5E', '#F59E0B', '#10B981'];
-    for(let i=0; i<60; i++) {
-        let p = document.createElement('div');
-        p.className = 'confetti-piece';
-        p.style.left = Math.random() * 100 + 'vw';
-        p.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
-        p.style.animationDuration = (Math.random() * 2 + 2) + 's';
-        p.style.animationDelay = (Math.random() * 0.5) + 's';
-        ov.appendChild(p);
-    }
-    setTimeout(() => { ov.classList.add('hidden'); }, 4000);
-}
-
-// ================= DOM ================= 
-const grid = document.getElementById('timelineGrid');
-const eventsContainer = document.getElementById('eventsContainer');
-const timeLine = document.getElementById('currentTimeLine');
-
-const fabBtn = document.getElementById('fabBtn');
-const btnExport = document.getElementById('btnExport');
-const btnImport = document.getElementById('btnImport');
-const importFileInput = document.getElementById('importFileInput');
-
-document.getElementById('btnNotifications').addEventListener('click', () => {
-    initAudio();
-    if (Notification.permission === 'default') {
-        Notification.requestPermission().then(p => { state.notificationsEnabled = (p === 'granted'); renderNotificationsIcon(); });
-    } else if (Notification.permission === 'granted') {
-        playHaptic('chime'); alert("Alerts active. You will be notified 5 mins before blocks start.");
-    }
-});
-function renderNotificationsIcon() {
-    const icon = document.getElementById('iconAlert');
-    icon.textContent = state.notificationsEnabled ? 'notifications_active' : 'notifications_off';
-    if(state.notificationsEnabled) icon.classList.add('text-success'); else icon.classList.remove('text-success');
-}
-
-// ================= INIT ================= 
-function init() {
-    document.body.addEventListener('click', initAudio, { once: true });
-    document.body.addEventListener('touchstart', initAudio, { once: true });
-    
-    grid.innerHTML = '';
-    for (let i = 0; i < 24; i++) {
-        const row = document.createElement('div'); row.className = 'hour-row';
-        row.innerHTML = `<div class="time-label">${i.toString().padStart(2, '0')}:00</div>`;
-        grid.appendChild(row);
-    }
-
-    const bgClick = document.createElement('div');
-    bgClick.className = 'timeline-interactive-bg';
-    eventsContainer.parentElement.appendChild(bgClick);
-    bgClick.addEventListener('click', (e) => {
-        const y = e.clientY - bgClick.getBoundingClientRect().top;
-        const clickedMinutes = Math.floor(y / PIXELS_PER_MINUTE);
-        let h = Math.floor(clickedMinutes / 60);
-        let m = Math.floor((clickedMinutes % 60) / 5) * 5;
-        const startStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-        let endM = m + 60; let endH = h + Math.floor(endM / 60); endM = endM % 60;
-        if(endH > 23) { endH = 23; endM = 59; }
-        const endStr = `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`;
-        openEventModal({ title: '', start: startStr, end: endStr, color: EVENT_COLORS[0].id });
-    });
-
-    renderColorPicker(); renderDayStats();
-    renderGamification(); renderEvents(); renderTasks(); renderHabits(); renderFinance(); renderJournal(); renderNotes();
-    renderNotificationsIcon();
-    
-    updateCurrentTimeIndicator(); setInterval(updateCurrentTimeIndicator, 60000);
-
-    // Nav
-    fabBtn.addEventListener('click', () => {
-        playHaptic('tick');
-        if (state.activeTab === 'view-timeline') openEventModal();
-        else if (state.activeTab === 'view-projects') openTaskModal();
-        else if (state.activeTab === 'view-finance') openFinanceModal();
-        else if (state.activeTab === 'view-notes') openNoteModal();
-    });
-
-    document.querySelectorAll('.close-sheet-btn').forEach(btn => {
-         btn.addEventListener('click', () => { playHaptic('tick'); document.querySelectorAll('.bottom-sheet-overlay').forEach(el => el.classList.add('hidden')); });
-    });
-
-    document.querySelectorAll('.nav-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            playHaptic('tick');
-            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active');
-            const targetId = btn.getAttribute('data-target');
-            document.querySelectorAll('.view-section').forEach(s => s.classList.remove('active'));
-            document.getElementById(targetId).classList.add('active');
-            state.activeTab = targetId;
-            fabBtn.style.transform = targetId === 'view-insight' ? 'scale(0)' : 'scale(1)';
-            document.getElementById('timelineHeaderExt').classList.toggle('collapse', targetId !== 'view-timeline');
-        });
-    });
-
-    // Backup
-    btnExport.addEventListener('click', () => {
-        playHaptic('tick');
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state));
-        const dn = document.createElement('a'); dn.setAttribute("href", dataStr);
-        dn.setAttribute("download", `lifeos_backup_${new Date().toISOString().slice(0,10)}.json`);
-        document.body.appendChild(dn); dn.click(); dn.remove();
-    });
-    btnImport.addEventListener('click', () => { playHaptic('tick'); importFileInput.click(); });
-    importFileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0]; if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            try {
-                const p = JSON.parse(ev.target.result);
-                if(p.events || p.tasks) {
-                    playHaptic('chime');
-                    state.events = p.events||[]; state.tasks = p.tasks||[]; state.habits = p.habits||[];
-                    state.transactions = p.transactions||[]; state.journal = p.journal||[]; state.notes = p.notes||[];
-                    if(p.gamify) state.gamify = p.gamify;
-                    saveData(); renderGamification(); renderEvents(); renderTasks(); renderHabits(); renderFinance(); renderJournal(); renderNotes();
-                    alert("✅ Data Restored Successfully!");
-                } else alert("❌ Invalid format.");
-            } catch (err) { alert("❌ Error."); }
-        }; reader.readAsText(file); e.target.value = '';
-    });
-}
-
-function updateCurrentTimeIndicator() {
-    const now = new Date(); const mins = now.getHours() * 60 + now.getMinutes();
-    timeLine.style.top = `${mins * PIXELS_PER_MINUTE}px`;
-    if(state.activeTab === 'view-timeline') timeLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-    if (state.notificationsEnabled && Notification.permission === 'granted') {
-        const nowStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-        const t5 = new Date(now.getTime() + 5 * 60000);
-        const t5Str = `${t5.getHours().toString().padStart(2, '0')}:${t5.getMinutes().toString().padStart(2, '0')}`;
-        state.events.forEach(ev => {
-            if (ev.start === t5Str) { playHaptic('chime'); new Notification(`Up Next: ${ev.title}`, { body: "Starts in 5 mins." }); } 
-            else if (ev.start === nowStr) { playHaptic('chime'); new Notification(`Starting Now: ${ev.title}`); }
-        });
-    }
-}
-
-// ================= TIMELINE EVENTS ================= 
-document.getElementById('eventForm').addEventListener('submit', (e) => {
-    e.preventDefault(); playHaptic('pop');
-    const id = document.getElementById('editingEventId').value;
-    const evt = {
-        id: id || Date.now().toString(),
-        title: document.getElementById('eventTitle').value,
-        start: document.getElementById('startTime').value, end: document.getElementById('endTime').value, color: state.selectedColor
-    };
-    if (id) { const idx = state.events.findIndex(x => x.id === id); if (idx > -1) state.events[idx] = evt; } 
-    else state.events.push(evt);
-    saveData(); renderEvents(); document.getElementById('addEventSheet').classList.add('hidden');
-});
-document.getElementById('btnDeleteEvent').addEventListener('click', () => {
-    state.events = state.events.filter(x => x.id !== document.getElementById('editingEventId').value);
-    saveData(); renderEvents(); document.getElementById('addEventSheet').classList.add('hidden'); playHaptic('tick');
-});
-
-function renderColorPicker() {
-    const cp = document.querySelector('.color-picker'); cp.innerHTML = '';
-    EVENT_COLORS.forEach(c => {
-        const div = document.createElement('div');
-        div.className = `color-option ${state.selectedColor === c.id ? 'active' : ''}`;
-        div.style.backgroundColor = c.raw; div.style.setProperty('--color-raw', c.raw);
-        div.addEventListener('click', () => { playHaptic('tick'); state.selectedColor = c.id; renderColorPicker(); });
-        cp.appendChild(div);
-    });
-}
-function t2m(ts) { const [h, m] = ts.split(':').map(Number); return h * 60 + m; }
-function m2t(m) { let h = Math.floor(m / 60); let min = m % 60; if(h>23){h=23;min=59;} return `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`; }
-
-function calculateOverlaps(arr) {
-    const sorted = [...arr].sort((a, b) => t2m(a.start) - t2m(b.start)); let cols = [];
-    sorted.forEach(evt => {
-        const start = t2m(evt.start); let placed = false;
-        for (let i = 0; i < cols.length; i++) { if (t2m(cols[i][cols[i].length - 1].end) <= start) { cols[i].push(evt); evt.colIndex = i; placed = true; break; } }
-        if (!placed) { evt.colIndex = cols.length; cols.push([evt]); }
-    });
-    sorted.forEach(evt => {
-        const st = t2m(evt.start); const en = t2m(evt.end); let ovCols = 0;
-        for (let i = 0; i < cols.length; i++) if (cols[i].some(e => t2m(e.start) < en && t2m(e.end) > st)) ovCols++;
-        evt.maxCols = Math.max(ovCols, 1);
-    }); return sorted;
-}
-
-function renderEvents() {
-    eventsContainer.innerHTML = '';
-    calculateOverlaps(state.events).forEach(evt => {
-        const st = t2m(evt.start); const en = t2m(evt.end); const dur = en - st;
-        const block = document.createElement('div'); block.className = 'event-block';
-        const wPct = (100 / evt.maxCols);
-        block.style.top = `${st * PIXELS_PER_MINUTE}px`; block.style.height = `${dur * PIXELS_PER_MINUTE}px`;
-        block.style.width = `calc(${wPct}% - 6px)`; block.style.left = `calc(${evt.colIndex * wPct}% + 2px)`;
-        block.style.backgroundColor = EVENT_COLORS.find(c => c.id === evt.color)?.raw || EVENT_COLORS[0].raw;
-        block.style.zIndex = evt.colIndex + 10;
-        block.innerHTML = `<div class="event-title">${evt.title}</div><div class="event-time">${evt.start} - ${evt.end}</div><div class="resizer-handle"></div>`;
-        enableDrag(block, evt); eventsContainer.appendChild(block);
-    });
-}
-let bDrag = false, bRes = false, sTY = 0, iT = 0, iH = 0, dTimer;
-function enableDrag(block, evtObj) {
-    const res = block.querySelector('.resizer-handle');
-    block.addEventListener('touchstart', (e) => {
-        if (e.target.classList.contains('resizer-handle')) return;
-        e.stopPropagation(); sTY = e.touches[0].clientY; iT = parseFloat(block.style.top);
-        dTimer = setTimeout(() => { bDrag = true; block.classList.add('dragging'); playHaptic('tick'); }, 300);
-    }, {passive: false});
-    block.addEventListener('touchmove', (e) => {
-        if (!bDrag) { clearTimeout(dTimer); return; } e.preventDefault();
-        block.style.top = `${Math.max(0, iT + (e.touches[0].clientY - sTY))}px`;
-    }, {passive: false});
-    block.addEventListener('touchend', (e) => {
-        clearTimeout(dTimer);
-        if (!bDrag) openEventModal(evtObj);
-        else {
-            bDrag = false; block.classList.remove('dragging'); playHaptic('pop');
-            const snapTop = Math.round(parseFloat(block.style.top) / 5) * 5;
-            const dur = t2m(evtObj.end) - t2m(evtObj.start);
-            evtObj.start = m2t(snapTop); evtObj.end = m2t(snapTop + dur);
-            saveData(); renderEvents();
-        }
-    });
-    res.addEventListener('touchstart', (e) => { e.stopPropagation(); bRes = true; sTY = e.touches[0].clientY; iH = parseFloat(block.style.height); block.classList.add('dragging'); }, {passive: false});
-    res.addEventListener('touchmove', (e) => { if(!bRes)return; e.preventDefault(); block.style.height = `${Math.max(15, iH + (e.touches[0].clientY - sTY))}px`; }, {passive: false});
-    res.addEventListener('touchend', (e) => {
-        if(!bRes)return; bRes = false; block.classList.remove('dragging'); playHaptic('tick');
-        evtObj.end = m2t(t2m(evtObj.start) + Math.round(parseFloat(block.style.height) / 5) * 5);
-        saveData(); renderEvents();
-    });
-}
-function openEventModal(evt = null) {
-    if (evt && evt.id) {
-        document.getElementById('editingEventId').value = evt.id; document.getElementById('eventTitle').value = evt.title;
-        document.getElementById('startTime').value = evt.start; document.getElementById('endTime').value = evt.end;
-        state.selectedColor = evt.color;
-        document.getElementById('btnDeleteEvent').classList.remove('hidden'); document.getElementById('btnFocusEvent').classList.remove('hidden');
-    } else {
-        const d = new Date(); const st = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-        document.getElementById('editingEventId').value = ''; document.getElementById('eventTitle').value = evt?.title || '';
-        document.getElementById('startTime').value = evt?.start || st; document.getElementById('endTime').value = evt?.end || st;
-        document.getElementById('btnDeleteEvent').classList.add('hidden'); document.getElementById('btnFocusEvent').classList.add('hidden');
-    }
-    renderColorPicker(); document.getElementById('addEventSheet').classList.remove('hidden');
-}
-
-// ================= SMART PROJECTS / KANBAN ================= 
-document.getElementById('taskForm').addEventListener('submit', (e) => {
-    e.preventDefault(); playHaptic('pop');
-    const id = document.getElementById('editingTaskId').value;
-    const title = document.getElementById('taskInputTitle').value.trim();
-    const status = document.getElementById('taskInputStatus').value;
-    const priority = document.getElementById('taskInputPriority').value;
-    
-    if(id) { let t = state.tasks.find(x => x.id === id); if(t){ t.title = title; t.status = status; t.priority = priority; } } 
-    else state.tasks.push({ id: Date.now().toString(), title, status, priority });
-    saveData(); renderTasks(); document.getElementById('addTaskSheet').classList.add('hidden');
-});
-document.getElementById('btnDeleteTask').addEventListener('click', () => {
-    state.tasks = state.tasks.filter(x => x.id !== document.getElementById('editingTaskId').value);
-    saveData(); renderTasks(); document.getElementById('addTaskSheet').classList.add('hidden'); playHaptic('tick');
-});
-function openTaskModal(tk = null) {
-    if(tk) {
-        document.getElementById('taskModalTitle').textContent = 'Edit Task';
-        document.getElementById('editingTaskId').value = tk.id;
-        document.getElementById('taskInputTitle').value = tk.title;
-        document.getElementById('taskInputStatus').value = tk.status;
-        document.getElementById('taskInputPriority').value = tk.priority;
-        document.getElementById('btnDeleteTask').classList.remove('hidden');
-        document.getElementById('btnFocusTask').classList.remove('hidden');
-    } else {
-        document.getElementById('taskModalTitle').textContent = 'New Task';
-        document.getElementById('editingTaskId').value = '';
-        document.getElementById('taskInputTitle').value = '';
-        document.getElementById('taskInputStatus').value = 'todo';
-        document.getElementById('taskInputPriority').value = 'med';
-        document.getElementById('btnDeleteTask').classList.add('hidden');
-        document.getElementById('btnFocusTask').classList.add('hidden');
-    }
-    document.getElementById('addTaskSheet').classList.remove('hidden');
-}
-function renderTasks() {
-    ['todo','doing','done'].forEach(st => document.getElementById(`list-${st}`).innerHTML = '');
-    let stats = { todo: 0, doing: 0, done: 0 };
-    const prioWeight = { 'high': 3, 'med': 2, 'low': 1 };
-    
-    // Sort tasks by Priority (High first)
-    [...state.tasks].sort((a,b) => prioWeight[b.priority] - prioWeight[a.priority]).forEach(t => {
-        stats[t.status]++;
-        const card = document.createElement('div');
-        card.className = `k-card haptic prio-${t.priority}`;
-        
-        let prioIcon = t.priority === 'high' ? '🔥' : t.priority === 'med' ? '⭐' : '☕';
-        
-        let nextBtn = '';
-        if(t.status === 'todo') nextBtn = `<button class="k-move-btn haptic" onclick="moveTask('${t.id}', 'doing', event)">Start <span class="material-icons-round" style="font-size:14px;">arrow_forward</span></button>`;
-        else if(t.status === 'doing') nextBtn = `<button class="k-move-btn haptic" style="color:var(--success);" onclick="moveTask('${t.id}', 'done', event)">Finish <span class="material-icons-round" style="font-size:14px;">check</span></button>`;
-        
-        card.innerHTML = `
-            <div class="k-title">${t.title}</div>
-            <div class="prio-badge">${prioIcon}</div>
-            <div class="k-actions">
-                <span style="font-size:0.75rem; color:var(--text-secondary);">&nbsp;</span>
-                ${nextBtn}
-            </div>
-        `;
-        card.addEventListener('click', (e) => { if(!e.target.closest('.k-move-btn')) openTaskModal(t); });
-        document.getElementById(`list-${t.status}`).appendChild(card);
-    });
-
-    ['todo','doing','done'].forEach(st => document.getElementById(`badge-${st}`).textContent = stats[st]);
-    const total = state.tasks.length; document.getElementById('taskProgressText').textContent = total === 0 ? "0% Done" : `${Math.round((stats.done / total)*100)}% Done`;
-}
-window.moveTask = function(id, st, e) {
-    if(e) e.stopPropagation();
-    let t = state.tasks.find(x => x.id === id);
-    if(t) { 
-        t.status = st; playHaptic(st==='done'?'pop':'tick'); 
-        if(st === 'done') addXP(20);
-        saveData(); renderTasks(); 
-    }
-}
-
-// ================= SECOND BRAIN (NOTES) ================= 
-function openNoteModal(n = null) {
-    if(n) {
-        document.getElementById('noteModalTitle').textContent = 'Edit Brain Dump';
-        document.getElementById('editingNoteId').value = n.id;
-        document.getElementById('noteInputTitle').value = n.title;
-        document.getElementById('noteInputContent').value = n.content;
-        document.getElementById('btnDeleteNote').classList.remove('hidden');
-    } else {
-        document.getElementById('noteModalTitle').textContent = 'New Brain Dump';
-        document.getElementById('editingNoteId').value = '';
-        document.getElementById('noteInputTitle').value = '';
-        document.getElementById('noteInputContent').value = '';
-        document.getElementById('btnDeleteNote').classList.add('hidden');
-    }
-    document.getElementById('addNoteSheet').classList.remove('hidden');
-}
-
-document.getElementById('noteForm').addEventListener('submit', (e) => {
-    e.preventDefault(); playHaptic('pop');
-    const id = document.getElementById('editingNoteId').value;
-    const n = { id: id || Date.now().toString(), title: document.getElementById('noteInputTitle').value.trim(), content: document.getElementById('noteInputContent').value, updated: new Date().toISOString() };
-    if(id) { let idx = state.notes.findIndex(x=>x.id===id); if(idx>-1) state.notes[idx]=n; } else state.notes.push(n);
-    saveData(); renderNotes(); document.getElementById('addNoteSheet').classList.add('hidden');
-});
-
-document.getElementById('btnDeleteNote').addEventListener('click', () => {
-    state.notes = state.notes.filter(x => x.id !== document.getElementById('editingNoteId').value);
-    saveData(); renderNotes(); document.getElementById('addNoteSheet').classList.add('hidden'); playHaptic('tick');
-});
-
-function renderNotes() {
-    const box = document.getElementById('notesGrid'); box.innerHTML = '';
-    [...state.notes].sort((a,b)=> new Date(b.updated)-new Date(a.updated)).forEach(n => {
-        let el = document.createElement('div'); el.className = 'note-card haptic';
-        el.innerHTML = `<div class="note-title">${n.title}</div><div class="note-preview">${n.content}</div>`;
-        el.addEventListener('click', ()=> openNoteModal(n));
-        box.appendChild(el);
-    });
-}
-
-// ================= HABITS ================= 
-document.getElementById('btnAddHabit').addEventListener('click', () => {
-    document.getElementById('habitModalTitle').textContent = 'New Habit'; document.getElementById('habitInputTitle').value = ''; document.getElementById('editingHabitId').value = '';
-    document.getElementById('btnDeleteHabit').classList.add('hidden'); document.getElementById('addHabitSheet').classList.remove('hidden');
-});
-document.getElementById('habitForm').addEventListener('submit', (e) => {
-    e.preventDefault(); playHaptic('pop');
-    const title = document.getElementById('habitInputTitle').value.trim(); const id = document.getElementById('editingHabitId').value;
-    if(id) { let h = state.habits.find(x => x.id === id); if(h) h.title = title; } else state.habits.push({ id: Date.now().toString(), title, completedDates: [] });
-    saveData(); renderHabits(); document.getElementById('addHabitSheet').classList.add('hidden');
-});
-document.getElementById('btnDeleteHabit').addEventListener('click', () => {
-    state.habits = state.habits.filter(x => x.id !== document.getElementById('editingHabitId').value);
-    saveData(); renderHabits(); document.getElementById('addHabitSheet').classList.add('hidden'); playHaptic('tick');
-});
-function isSameDay(d1, d2) { return d1.toDateString() === d2.toDateString(); }
-function calculateStreak(datesArr) {
-    if(!datesArr || datesArr.length === 0) return 0;
-    const dates = datesArr.map(d => new Date(d)).sort((a,b) => b-a); let streak = 0; let curr = new Date();
-    if (!isSameDay(dates[0], curr)) { let yes = new Date(); yes.setDate(yes.getDate() - 1); if (isSameDay(dates[0], yes)) curr = yes; else return 0; }
-    for(let i=0; i<dates.length; i++) { if (isSameDay(dates[i], curr)) { streak++; curr.setDate(curr.getDate() - 1); } else break; }
-    return streak;
-}
-let habitPressTimer;
-function renderHabits() {
-    const box = document.getElementById('habitsContainer'); box.innerHTML = '';
-    const today = new Date().toDateString();
-    state.habits.forEach(h => {
-        const streak = calculateStreak(h.completedDates); const done = h.completedDates.indexOf(today) !== -1;
-        const el = document.createElement('div'); el.className = `habit-item ${done ? 'done' : ''}`;
-        el.innerHTML = `<div class="habit-icon haptic"><span style="font-size: 1.2rem; font-weight: bold;">${done ? '✓' : h.title.charAt(0).toUpperCase()}</span></div><span class="habit-name">${h.title}</span>${streak > 0 ? `<div class="streak-badge">🔥 ${streak}</div>` : ''}`;
-        el.addEventListener('touchstart', () => {
-            habitPressTimer = setTimeout(() => { playHaptic('tick'); el.classList.add('edit-mode');
-                setTimeout(() => { document.getElementById('habitInputTitle').value = h.title; document.getElementById('editingHabitId').value = h.id; document.getElementById('btnDeleteHabit').classList.remove('hidden'); document.getElementById('addHabitSheet').classList.remove('hidden'); el.classList.remove('edit-mode'); }, 400);
-            }, 500);
-        }, {passive:true});
-        el.addEventListener('touchend', () => clearTimeout(habitPressTimer)); el.addEventListener('touchmove', () => clearTimeout(habitPressTimer));
-        el.addEventListener('click', () => {
-            if(el.classList.contains('edit-mode')) return; 
-            if (done) h.completedDates = h.completedDates.filter(d => d !== today); else { h.completedDates.push(today); addXP(15); }
-            playHaptic(done ? 'tick' : 'pop'); saveData(); renderHabits();
-        });
-        box.appendChild(el);
-    });
-}
-
-// ================= FINANCE ================= 
-document.querySelectorAll('.ft-btn').forEach(btn => {
-    btn.addEventListener('click', () => { document.querySelectorAll('.ft-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); document.getElementById('finType').value = btn.getAttribute('data-type'); playHaptic('tick'); });
-});
-function openFinanceModal(tx = null) {
-    if(tx) { document.getElementById('editingFinId').value = tx.id; document.getElementById('finAmount').value = tx.amount; document.getElementById('finDesc').value = tx.desc; document.getElementById('finType').value = tx.type; document.querySelectorAll('.ft-btn').forEach(b => b.classList.toggle('active', b.getAttribute('data-type')===tx.type)); document.getElementById('btnDeleteFin').classList.remove('hidden'); } 
-    else { document.getElementById('editingFinId').value = ''; document.getElementById('finAmount').value = ''; document.getElementById('finDesc').value = ''; document.getElementById('btnDeleteFin').classList.add('hidden'); }
-    document.getElementById('addFinanceSheet').classList.remove('hidden');
-}
-document.getElementById('financeForm').addEventListener('submit', (e) => {
-    e.preventDefault(); playHaptic('pop'); let id = document.getElementById('editingFinId').value;
-    let t = { id: id || Date.now().toString(), amount: parseFloat(document.getElementById('finAmount').value), desc: document.getElementById('finDesc').value, type: document.getElementById('finType').value, date: new Date().toISOString() };
-    if(id) { let idx = state.transactions.findIndex(x=>x.id===id); if(idx>-1) state.transactions[idx]=t; } else state.transactions.push(t);
-    saveData(); renderFinance(); document.getElementById('addFinanceSheet').classList.add('hidden');
-});
-document.getElementById('btnDeleteFin').addEventListener('click', () => { state.transactions = state.transactions.filter(x => x.id !== document.getElementById('editingFinId').value); saveData(); renderFinance(); document.getElementById('addFinanceSheet').classList.add('hidden'); playHaptic('tick'); });
-function renderFinance() {
-    let inc = 0, exp = 0; const ls = document.getElementById('transactionList'); ls.innerHTML = ''; const getF = new Intl.NumberFormat('th-TH', { style:'currency', currency:'THB' });
-    [...state.transactions].sort((a,b)=> new Date(b.date)-new Date(a.date)).forEach(tx => {
-        if(tx.type==='INCOME') inc += tx.amount; else exp += tx.amount;
-        let el = document.createElement('div'); el.className = `txn-item ${tx.type}`;
-        el.innerHTML = `<div class="txn-info"><div class="txn-desc">${tx.desc}</div><div class="txn-date">${new Date(tx.date).toLocaleDateString()}</div></div><div class="txn-amount">${tx.type==='INCOME'?'+':'-'} ${getF.format(tx.amount)}</div>`;
-        el.addEventListener('click', ()=> openFinanceModal(tx)); ls.appendChild(el);
-    });
-    document.getElementById('totalIncome').textContent = getF.format(inc); document.getElementById('totalExpense').textContent = getF.format(exp); document.getElementById('totalBalance').textContent = getF.format(inc - exp);
-}
-
-// ================= INSIGHT & JOURNAL ================= 
-let currentSelectedStars = 0;
-document.querySelectorAll('.star').forEach(st => {
-    st.addEventListener('click', (e) => { playHaptic('tick'); currentSelectedStars = parseInt(e.target.getAttribute('data-val')); document.querySelectorAll('.star').forEach(s => { s.textContent = parseInt(s.getAttribute('data-val')) <= currentSelectedStars ? 'star' : 'star_outline'; s.classList.toggle('active', parseInt(s.getAttribute('data-val')) <= currentSelectedStars); }); });
-});
-document.getElementById('btnSaveJournal').addEventListener('click', () => {
-    if (currentSelectedStars === 0) return alert("Please select a star rating first.");
-    playHaptic('pop'); addXP(10);
-    state.journal.push({ id: Date.now().toString(), date: new Date().toISOString(), stars: currentSelectedStars, text: document.getElementById('gratitudeInput').value.trim() });
-    saveData(); renderJournal(); document.getElementById('gratitudeInput').value = ''; document.getElementById('journalFeedback').style.display = 'block'; setTimeout(()=> document.getElementById('journalFeedback').style.display = 'none', 3000);
-});
-function renderJournal() {
-    const box = document.getElementById('journalHistoryContainer'); box.innerHTML = '';
-    [...state.journal].sort((a,b)=> new Date(b.date)-new Date(a.date)).forEach(j => {
-        let starsStr = ''; for(let i=0;i<j.stars;i++) starsStr += '★';
-        const el = document.createElement('div'); el.className = 'journal-item';
-        el.innerHTML = `<div class="journal-head"><span class="journal-date">${new Date(j.date).toLocaleDateString()}</span><span class="journal-stars">${starsStr}</span></div>${j.text ? `<div class="journal-text">"${j.text}"</div>` : ''}`; box.appendChild(el);
-    });
-}
-
-
-
-function renderDayStats() {
-    const d = new Date(); const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']; const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-    document.getElementById('headerSubtitle').textContent = `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
-    const h = d.getHours(); document.getElementById('greetingMsg').textContent = h<12?"Good Morning,":h<18?"Good Afternoon,":"Good Evening,";
-    const w = document.getElementById('weekSlider'); w.innerHTML = '';
-    for(let i=-2; i<=4; i++) {
-        let l = new Date(); l.setDate(d.getDate() + i);
-        w.innerHTML += `<div class="day-card haptic ${i===0?'active':''}"><div class="day-name">${days[l.getDay()].substr(0,3)}</div><div class="day-num">${l.getDate()}</div></div>`;
-    }
-}
-
-// ================= AMBIENT & POMODORO FOCUS (PHASE 6) ================= 
-const AMBIENT = {
-    rain: new Audio('https://actions.google.com/sounds/v1/weather/rain_heavy_loud.ogg'),
-    forest: new Audio('https://actions.google.com/sounds/v1/ambiences/daytime_forest_bonfire.ogg'),
-    cafe: new Audio('https://actions.google.com/sounds/v1/crowds/battle_crowd_2.ogg')
-};
-Object.values(AMBIENT).forEach(a => { a.loop = true; a.volume = 0.5; });
-let activeAmbient = null;
-
-document.querySelectorAll('.ambient-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-        const type = btn.getAttribute('data-sound'); playHaptic('tick');
-        Object.values(AMBIENT).forEach(a => a.pause()); document.querySelectorAll('.ambient-btn').forEach(b => b.classList.remove('active'));
-        if (activeAmbient === type) { activeAmbient = null; } 
-        else { activeAmbient = type; btn.classList.add('active'); if(!pomPaused && focusOverlay && !focusOverlay.classList.contains('hidden')) AMBIENT[type].play(); }
-    });
-});
-
-const focusOverlay = document.getElementById('focusOverlay'); let pomIntervalId, pomEndTime, pomTotal, pomPaused, pomLeftPaused;
-function startFocus(title, minsDuration) {
-    playHaptic('pop'); document.querySelectorAll('.bottom-sheet-overlay').forEach(el => el.classList.add('hidden'));
-    document.getElementById('focusTaskName').textContent = title;
-    // Phase 6 iOS sleep fix: Calculate Target Timestamp
-    pomTotal = minsDuration * 60; pomEndTime = Date.now() + pomTotal * 1000; pomPaused = false;
-    
-    if(activeAmbient) AMBIENT[activeAmbient].play();
-    updatePomDisplay(pomTotal); focusOverlay.classList.remove('hidden'); clearInterval(pomIntervalId);
-    
-    // Request permission early if needed
-    if(Notification.permission !== "granted" && state.notificationsEnabled) Notification.requestPermission();
-    
-    pomIntervalId = setInterval(() => {
-        if(!pomPaused) { 
-            let left = Math.max(0, Math.ceil((pomEndTime - Date.now()) / 1000));
-            updatePomDisplay(left); 
-            if(left === 0) { 
-                playHaptic('chime'); clearInterval(pomIntervalId); addXP(50);
-                if(activeAmbient) AMBIENT[activeAmbient].pause();
-                // Push Notification when it ends out-of-app!
-                if(Notification.permission === "granted") {
-                    new Notification("Focus Session Complete! 🎯", { body: `Great job on: ${title}. You earned +50 XP and +50 Coins!`, icon: "icon.svg" });
-                }
-            } 
-        }
-    }, 1000);
-}
-document.getElementById('btnFocusEvent').addEventListener('click', () => {
-    const ev = state.events.find(e => e.id === document.getElementById('editingEventId').value);
-    if(ev) startFocus(ev.title, t2m(ev.end) - t2m(ev.start));
-});
-document.getElementById('btnFocusTask').addEventListener('click', () => {
-    const td = state.tasks.find(e => e.id === document.getElementById('editingTaskId').value);
-    if(td) startFocus(td.title, 25);
-});
-function updatePomDisplay(left) {
-    let m = Math.floor(left / 60); let s = left % 60;
-    document.getElementById('pomodoroTimeText').textContent = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    document.getElementById('pomodoroProgress').style.strokeDashoffset = 565.48 - (565.48 * (left/pomTotal));
-}
-document.getElementById('btnToggleFocus').addEventListener('click', (e) => {
-    playHaptic('tick'); pomPaused = !pomPaused; const btn = e.currentTarget; const icon = document.getElementById('focusPlayIcon');
-    if(pomPaused) { 
-        icon.textContent="play_arrow"; btn.classList.replace('pause','play'); document.getElementById('focusPhaseText').textContent='paused'; 
-        pomLeftPaused = Math.max(0, Math.ceil((pomEndTime - Date.now()) / 1000)); // Backup left time
-        if(activeAmbient) AMBIENT[activeAmbient].pause();
-    } else { 
-        icon.textContent="pause"; btn.classList.replace('play','pause'); document.getElementById('focusPhaseText').textContent='time to focus'; 
-        pomEndTime = Date.now() + (pomLeftPaused * 1000); // Resume target timestamp
-        if(activeAmbient) AMBIENT[activeAmbient].play();
-    }
-});
-document.getElementById('btnExitFocus').addEventListener('click', () => { 
-    playHaptic('tick'); clearInterval(pomIntervalId); focusOverlay.classList.add('hidden'); 
-    if(activeAmbient) AMBIENT[activeAmbient].pause();
-});
-
-// ================= GAMIFICATION REWARD SHOP =================
-document.getElementById('btnShop').addEventListener('click', () => { playHaptic('tick'); document.getElementById('shopSheet').classList.remove('hidden'); renderShop(); });
-document.getElementById('rewardForm').addEventListener('submit', (e) => {
-    e.preventDefault(); playHaptic('pop');
-    state.rewards.push({ id: Date.now().toString(), name: document.getElementById('rewardInputName').value.trim(), cost: parseInt(document.getElementById('rewardInputCost').value) });
-    document.getElementById('rewardInputName').value = ''; document.getElementById('rewardInputCost').value = '';
-    saveData(); renderShop();
-});
-function renderShop() {
-    const box = document.getElementById('rewardGrid'); box.innerHTML = '';
-    if(!state.gamify.coins) state.gamify.coins = 0; document.getElementById('shopCoinText').textContent = state.gamify.coins;
-    state.rewards.forEach(r => {
-        let el = document.createElement('div'); el.className = 'shop-item';
-        let disabled = (state.gamify.coins) < r.cost ? "disabled" : "";
-        el.innerHTML = `<div class="shop-item-info"><div class="shop-item-name">${r.name}</div><div style="margin-top: 6px;"><span class="shop-item-cost">🪙 ${r.cost}</span></div></div><button class="shop-delete-btn haptic" onclick="deleteReward('${r.id}')"><span class="material-icons-round">delete</span></button><button class="shop-buy-btn haptic" ${disabled} onclick="buyReward('${r.id}')">Buy</button>`; box.appendChild(el);
-    });
-}
-window.deleteReward = function(id) { playHaptic('tick'); state.rewards = state.rewards.filter(x => x.id !== id); saveData(); renderShop(); }
-window.buyReward = function(id) {
-    let rw = state.rewards.find(x => x.id === id);
-    if(rw && state.gamify.coins >= rw.cost) { state.gamify.coins -= rw.cost; playHaptic('chime'); saveData(); renderShop(); renderGamification(); alert(`🎉 Purchased: ${rw.name}! Treat yourself well.`); }
-}
+state.tasks.forEach(t=>{if(!t.priority)t.priority='med';if(!t.recur)t.recur='none';});
 
 function saveData() {
-    localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(state.events)); localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(state.tasks));
-    localStorage.setItem(STORAGE_KEYS.HABITS, JSON.stringify(state.habits)); localStorage.setItem(STORAGE_KEYS.FINANCE, JSON.stringify(state.transactions));
-    localStorage.setItem(STORAGE_KEYS.JOURNAL, JSON.stringify(state.journal)); localStorage.setItem(STORAGE_KEYS.NOTES, JSON.stringify(state.notes));
-    localStorage.setItem(STORAGE_KEYS.GAMIFY, JSON.stringify(state.gamify)); localStorage.setItem(STORAGE_KEYS.REWARDS, JSON.stringify(state.rewards));
+  localStorage.setItem(SK.E,JSON.stringify(state.events)); localStorage.setItem(SK.T,JSON.stringify(state.tasks));
+  localStorage.setItem(SK.H,JSON.stringify(state.habits)); localStorage.setItem(SK.F,JSON.stringify(state.transactions));
+  localStorage.setItem(SK.J,JSON.stringify(state.journal)); localStorage.setItem(SK.N,JSON.stringify(state.notes));
+  localStorage.setItem(SK.G,JSON.stringify(state.gamify)); localStorage.setItem(SK.R,JSON.stringify(state.rewards));
+  localStorage.setItem(SK.S,JSON.stringify(state.subscriptions)); localStorage.setItem(SK.FM,JSON.stringify(state.financeMeta));
+  localStorage.setItem(SK.A,JSON.stringify(state.archivedTasks));
 }
 
-document.addEventListener('DOMContentLoaded', init);
+// ===== AUDIO & HAPTICS =====
+let audioCtx;
+function initAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();}
+function playHaptic(type='tick'){
+  if(!audioCtx||audioCtx.state==='suspended')return;
+  const o=audioCtx.createOscillator(),gn=audioCtx.createGain();
+  o.connect(gn);gn.connect(audioCtx.destination);const now=audioCtx.currentTime;
+  if(type==='tick'){o.frequency.setValueAtTime(150,now);o.frequency.exponentialRampToValueAtTime(0.01,now+.05);gn.gain.setValueAtTime(.5,now);gn.gain.exponentialRampToValueAtTime(.01,now+.05);o.start(now);o.stop(now+.05);}
+  else if(type==='pop'){o.frequency.setValueAtTime(400,now);o.frequency.exponentialRampToValueAtTime(800,now+.1);gn.gain.setValueAtTime(.8,now);gn.gain.exponentialRampToValueAtTime(.01,now+.1);o.type='sine';o.start(now);o.stop(now+.1);}
+  else if(type==='chime'){o.frequency.setValueAtTime(800,now);o.frequency.exponentialRampToValueAtTime(400,now+.5);gn.gain.setValueAtTime(.6,now);gn.gain.exponentialRampToValueAtTime(.01,now+.5);o.type='triangle';o.start(now);o.stop(now+.5);}
+  else if(type==='levelup'){o.frequency.setValueAtTime(400,now);o.frequency.linearRampToValueAtTime(1000,now+.5);gn.gain.setValueAtTime(.5,now);gn.gain.linearRampToValueAtTime(0,now+.6);o.type='square';o.start(now);o.stop(now+.6);}
+}
+
+// ===== GAMIFICATION =====
+function spawnFloatingText(text,x,y,color='#F59E0B'){
+  const el=document.createElement('div');el.className='floating-xp';el.textContent=text;
+  el.style.cssText=`left:${x-40}px;top:${y-20}px;color:${color}`;
+  document.body.appendChild(el);setTimeout(()=>el.remove(),1200);
+}
+function addXP(amt,coinAmt=null,x=null,y=null){
+  state.gamify.xp+=amt;
+  const c=coinAmt!==null?coinAmt:amt;
+  if(!state.gamify.coins)state.gamify.coins=0;state.gamify.coins+=c;
+  if(x&&y)spawnFloatingText(`+${amt} XP`,x,y);
+  renderGamification();saveData();
+}
+function renderGamification(){
+  const lim=state.gamify.level*100;
+  while(state.gamify.xp>=lim){state.gamify.xp-=lim;state.gamify.level++;triggerConfetti();playHaptic('levelup');}
+  const realLim=state.gamify.level*100;
+  g('levelText').textContent=state.gamify.level;
+  g('xpText').textContent=`(${state.gamify.xp}/${realLim} XP)`;
+  g('expFill').style.width=`${(state.gamify.xp/realLim)*100}%`;
+  g('coinText').textContent=state.gamify.coins||0;
+  if(g('shopCoinText'))g('shopCoinText').textContent=state.gamify.coins||0;
+}
+function triggerConfetti(){
+  const ov=g('confettiOverlay');ov.classList.remove('hidden');ov.innerHTML='';
+  const cols=['#7C3AED','#06B6D4','#F43F5E','#F59E0B','#10B981','#EC4899'];
+  for(let i=0;i<70;i++){
+    let p=document.createElement('div');p.className='confetti-piece';
+    const dx=(Math.random()-0.5)*200;
+    p.style.cssText=`left:${Math.random()*100}vw;background:${cols[Math.floor(Math.random()*cols.length)]};animation-duration:${Math.random()*2.5+2}s;animation-delay:${Math.random()*.6}s;--dx:${dx}px;transform:rotate(${Math.random()*360}deg);border-radius:${Math.random()>.5?'50%':'3px'};`;
+    ov.appendChild(p);
+  }
+  setTimeout(()=>ov.classList.add('hidden'),5000);
+  showToast('Level Up! 🎊', 'success', '⬆️');
+}
+
+// ===== DAILY MAINTENANCE =====
+function processDailyMaintenance(){
+  const today=new Date().toDateString();
+  if(localStorage.getItem(SK.LR)===today)return;
+  // Auto-archive done tasks older than 3 days
+  const cutoff=Date.now()-3*86400000;
+  const keeping=[];
+  state.tasks.forEach(t=>{
+    if(t.status==='done'&&t.completedAt&&new Date(t.completedAt).getTime()<cutoff){
+      if(t.recur==='daily'){t.status='todo';t.completedAt=null;keeping.push(t);}
+      else if(t.recur==='weekly'){const now=new Date();if(now.getDay()===1){t.status='todo';t.completedAt=null;}keeping.push(t);}
+      else state.archivedTasks.push(t);
+    } else keeping.push(t);
+  });
+  state.tasks=keeping;
+  // Strict mode: penalise missed habits from yesterday
+  let yd=new Date();yd.setDate(yd.getDate()-1);const ydStr=yd.toDateString();let missed=0;
+  state.habits.forEach(h=>{if(!h.completedDates.includes(ydStr))missed++;});
+  if(missed>0){const pen=missed*30;state.gamify.xp=Math.max(0,state.gamify.xp-pen);setTimeout(()=>spawnFloatingText(`-${pen} XP Penalty`,window.innerWidth/2,80,'#EF4444'),2000);}
+  localStorage.setItem(SK.LR,today);saveData();
+}
+
+// ===== TIMELINE =====
+const grid=g('timelineGrid'),evCon=g('eventsContainer'),timeLine=g('currentTimeLine');
+const t2m=ts=>{const[h,m]=ts.split(':').map(Number);return h*60+m;};
+const m2t=m=>{let h=Math.floor(m/60),mn=m%60;if(h>23){h=23;mn=59;}return`${String(h).padStart(2,'0')}:${String(mn).padStart(2,'0')}`;};
+
+function calcOverlaps(arr){
+  const s=[...arr].sort((a,b)=>t2m(a.start)-t2m(b.start));let cols=[];
+  s.forEach(ev=>{const st=t2m(ev.start);let pl=false;for(let i=0;i<cols.length;i++){if(t2m(cols[i][cols[i].length-1].end)<=st){cols[i].push(ev);ev.colIndex=i;pl=true;break;}}if(!pl){ev.colIndex=cols.length;cols.push([ev]);}});
+  s.forEach(ev=>{const st=t2m(ev.start),en=t2m(ev.end);let ov=0;cols.forEach(c=>{if(c.some(e=>t2m(e.start)<en&&t2m(e.end)>st))ov++;});ev.maxCols=Math.max(ov,1);});return s;
+}
+function renderEvents(){
+  evCon.innerHTML='';
+  calcOverlaps(state.events).forEach(ev=>{
+    const st=t2m(ev.start),en=t2m(ev.end),dur=en-st;
+    const b=document.createElement('div');b.className='event-block';
+    const wp=100/ev.maxCols;
+    b.style.cssText=`top:${st}px;height:${dur}px;width:calc(${wp}% - 6px);left:calc(${ev.colIndex*wp}% + 2px);background-color:${EVT_COLORS.find(c=>c.id===ev.color)?.raw||EVT_COLORS[0].raw};z-index:${ev.colIndex+10}`;
+    b.innerHTML=`<div class="event-title">${ev.title}</div><div class="event-time">${ev.start}–${ev.end}</div><div class="resizer-handle"></div>`;
+    enableDrag(b,ev);evCon.appendChild(b);
+  });
+}
+let bDrag=false,bRes=false,sTY=0,iT=0,iH=0,dTimer;
+function enableDrag(b,ev){
+  const rs=b.querySelector('.resizer-handle');
+  b.addEventListener('touchstart',e=>{if(e.target.classList.contains('resizer-handle'))return;e.stopPropagation();sTY=e.touches[0].clientY;iT=parseFloat(b.style.top);dTimer=setTimeout(()=>{bDrag=true;b.classList.add('dragging');playHaptic('tick');},300);},{passive:false});
+  b.addEventListener('touchmove',e=>{if(!bDrag){clearTimeout(dTimer);return;}e.preventDefault();b.style.top=`${Math.max(0,iT+(e.touches[0].clientY-sTY))}px`;},{passive:false});
+  b.addEventListener('touchend',e=>{clearTimeout(dTimer);if(!bDrag)openEventModal(ev);else{bDrag=false;b.classList.remove('dragging');playHaptic('pop');const snap=Math.round(parseFloat(b.style.top)/5)*5,dur=t2m(ev.end)-t2m(ev.start);ev.start=m2t(snap);ev.end=m2t(snap+dur);saveData();renderEvents();}});
+  rs.addEventListener('touchstart',e=>{e.stopPropagation();bRes=true;sTY=e.touches[0].clientY;iH=parseFloat(b.style.height);b.classList.add('dragging');},{passive:false});
+  rs.addEventListener('touchmove',e=>{if(!bRes)return;e.preventDefault();b.style.height=`${Math.max(15,iH+(e.touches[0].clientY-sTY))}px`;},{passive:false});
+  rs.addEventListener('touchend',()=>{if(!bRes)return;bRes=false;b.classList.remove('dragging');playHaptic('tick');ev.end=m2t(t2m(ev.start)+Math.round(parseFloat(b.style.height)/5)*5);saveData();renderEvents();});
+}
+function renderColorPicker(){
+  const cp=document.querySelector('.color-picker');if(!cp)return;cp.innerHTML='';
+  EVT_COLORS.forEach(c=>{const d=document.createElement('div');d.className=`color-option${state.selectedColor===c.id?' active':''}`;d.style.cssText=`background:${c.raw};--color-raw:${c.raw}`;d.onclick=()=>{playHaptic('tick');state.selectedColor=c.id;renderColorPicker();};cp.appendChild(d);});
+}
+function openEventModal(ev=null){
+  if(ev&&ev.id){g('editingEventId').value=ev.id;g('eventTitle').value=ev.title;g('startTime').value=ev.start;g('endTime').value=ev.end;state.selectedColor=ev.color;g('btnDeleteEvent').classList.remove('hidden');g('btnFocusEvent').classList.remove('hidden');}
+  else{const d=new Date(),st=`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;g('editingEventId').value='';g('eventTitle').value=ev?.title||'';g('startTime').value=ev?.start||st;g('endTime').value=ev?.end||st;g('btnDeleteEvent').classList.add('hidden');g('btnFocusEvent').classList.add('hidden');}
+  renderColorPicker();g('addEventSheet').classList.remove('hidden');
+}
+g('eventForm').addEventListener('submit',e=>{e.preventDefault();playHaptic('pop');const id=g('editingEventId').value,ev={id:id||Date.now().toString(),title:g('eventTitle').value,start:g('startTime').value,end:g('endTime').value,color:state.selectedColor};if(id){const ix=state.events.findIndex(x=>x.id===id);if(ix>-1)state.events[ix]=ev;}else state.events.push(ev);saveData();renderEvents();g('addEventSheet').classList.add('hidden');});
+g('btnDeleteEvent').addEventListener('click',()=>{state.events=state.events.filter(x=>x.id!==g('editingEventId').value);saveData();renderEvents();g('addEventSheet').classList.add('hidden');playHaptic('tick');});
+
+// ===== TASKS =====
+function openTaskModal(tk=null){
+  if(tk){g('taskModalTitle').textContent='Edit Task';g('editingTaskId').value=tk.id;g('taskInputTitle').value=tk.title;g('taskInputStatus').value=tk.status;g('taskInputPriority').value=tk.priority;g('taskInputRecur').value=tk.recur||'none';g('btnDeleteTask').classList.remove('hidden');g('btnFocusTask').classList.remove('hidden');}
+  else{g('taskModalTitle').textContent='New Task';g('editingTaskId').value='';g('taskInputTitle').value='';g('taskInputStatus').value='todo';g('taskInputPriority').value='med';g('taskInputRecur').value='none';g('btnDeleteTask').classList.add('hidden');g('btnFocusTask').classList.add('hidden');}
+  g('addTaskSheet').classList.remove('hidden');
+}
+g('taskForm').addEventListener('submit',e=>{e.preventDefault();playHaptic('pop');const id=g('editingTaskId').value,title=g('taskInputTitle').value.trim(),status=g('taskInputStatus').value,priority=g('taskInputPriority').value,recur=g('taskInputRecur').value;
+  if(id){let t=state.tasks.find(x=>x.id===id);if(t){t.title=title;t.status=status;t.priority=priority;t.recur=recur;}}
+  else state.tasks.push({id:Date.now().toString(),title,status,priority,recur,completedAt:null});
+  saveData();renderTasks();g('addTaskSheet').classList.add('hidden');});
+g('btnDeleteTask').addEventListener('click',()=>{state.tasks=state.tasks.filter(x=>x.id!==g('editingTaskId').value);saveData();renderTasks();g('addTaskSheet').classList.add('hidden');playHaptic('tick');});
+function renderTasks(){
+  ['todo','doing','done'].forEach(st=>g(`list-${st}`).innerHTML='');
+  let stats={todo:0,doing:0,done:0};
+  const pw={'high':3,'med':2,'low':1};
+  [...state.tasks].sort((a,b)=>pw[b.priority]-pw[a.priority]).forEach(t=>{
+    stats[t.status]++;
+    const card=document.createElement('div');card.className=`k-card haptic prio-${t.priority}`;
+    const icon=t.priority==='high'?'🔥':t.priority==='med'?'⭐':'☕';
+    const recurTag=t.recur&&t.recur!=='none'?`<div class="k-recur">${t.recur==='daily'?'🔁 Daily':'📅 Weekly'}</div>`:'';
+    let nextBtn='';
+    if(t.status==='todo')nextBtn=`<button class="k-move-btn haptic" onclick="moveTask('${t.id}','doing',event)">Start <span class="material-icons-round" style="font-size:13px">arrow_forward</span></button>`;
+    else if(t.status==='doing')nextBtn=`<button class="k-move-btn finish haptic" onclick="moveTask('${t.id}','done',event)">Finish <span class="material-icons-round" style="font-size:13px">check</span></button>`;
+    card.innerHTML=`<div class="k-title">${t.title}</div>${recurTag}<div class="prio-badge">${icon}</div><div class="k-actions">${nextBtn}</div>`;
+    card.addEventListener('click',e=>{if(!e.target.closest('.k-move-btn'))openTaskModal(t);});
+    g(`list-${t.status}`).appendChild(card);
+  });
+  ['todo','doing','done'].forEach(st=>g(`badge-${st}`).textContent=stats[st]);
+  const tot=state.tasks.length;g('taskProgressText').textContent=tot===0?'0% Done':`${Math.round((stats.done/tot)*100)}% Done`;
+}
+window.moveTask=function(id,st,e){if(e)e.stopPropagation();let t=state.tasks.find(x=>x.id===id);if(t){const ev=e;t.status=st;playHaptic(st==='done'?'pop':'tick');if(st==='done'){t.completedAt=new Date().toISOString();addXP(20,20,ev?.clientX||window.innerWidth/2,ev?.clientY||200);}saveData();renderTasks();}};
+
+// ===== HABITS =====
+let habitPressTimer;
+function isSameDay(d1,d2){return d1.toDateString()===d2.toDateString();}
+function calcStreak(dates){
+  if(!dates||!dates.length)return 0;
+  const ds=dates.map(d=>new Date(d)).sort((a,b)=>b-a);let str=0,curr=new Date();
+  if(!isSameDay(ds[0],curr)){let y=new Date();y.setDate(y.getDate()-1);if(isSameDay(ds[0],y))curr=y;else return 0;}
+  for(let i=0;i<ds.length;i++){if(isSameDay(ds[i],curr)){str++;curr.setDate(curr.getDate()-1);}else break;}return str;
+}
+g('btnAddHabit').addEventListener('click',()=>{g('habitModalTitle').textContent='New Habit';g('habitInputTitle').value='';g('habitInputEmoji').value='';g('editingHabitId').value='';g('btnDeleteHabit').classList.add('hidden');g('addHabitSheet').classList.remove('hidden');});
+g('habitForm').addEventListener('submit',e=>{e.preventDefault();playHaptic('pop');const title=g('habitInputTitle').value.trim(),emoji=g('habitInputEmoji').value.trim()||'✅',id=g('editingHabitId').value;
+  if(id){let h=state.habits.find(x=>x.id===id);if(h){h.title=title;h.emoji=emoji;}}else state.habits.push({id:Date.now().toString(),title,emoji,completedDates:[]});
+  saveData();renderHabits();g('addHabitSheet').classList.add('hidden');});
+g('btnDeleteHabit').addEventListener('click',()=>{state.habits=state.habits.filter(x=>x.id!==g('editingHabitId').value);saveData();renderHabits();g('addHabitSheet').classList.add('hidden');playHaptic('tick');});
+function renderHabits(){
+  const box=g('habitsContainer');box.innerHTML='';
+  const today=new Date().toDateString();
+  state.habits.forEach(h=>{
+    const streak=calcStreak(h.completedDates),done=h.completedDates.includes(today);
+    const el=document.createElement('div');el.className=`habit-item${done?' done':''}`;
+    el.innerHTML=`<div class="habit-icon">${done?'✓':h.emoji||'⭐'}</div><span class="habit-name">${h.title}</span>${streak>0?`<div class="streak-badge">🔥${streak}</div>`:''}`;
+    el.addEventListener('touchstart',()=>{habitPressTimer=setTimeout(()=>{playHaptic('tick');el.classList.add('edit-mode');setTimeout(()=>{g('habitInputTitle').value=h.title;g('habitInputEmoji').value=h.emoji||'';g('editingHabitId').value=h.id;g('btnDeleteHabit').classList.remove('hidden');g('addHabitSheet').classList.remove('hidden');el.classList.remove('edit-mode');},400);},500);},{passive:true});
+    el.addEventListener('touchend',()=>clearTimeout(habitPressTimer));el.addEventListener('touchmove',()=>clearTimeout(habitPressTimer));
+    el.addEventListener('click',ev=>{if(el.classList.contains('edit-mode'))return;if(done){h.completedDates=h.completedDates.filter(d=>d!==today);playHaptic('pop');}else{h.completedDates.push(today);addXP(15,15,ev.clientX,ev.clientY);playHaptic('tick');}saveData();renderHabits();renderHeatmap();renderInsightStats();});
+    box.appendChild(el);
+  });
+}
+function renderHeatmap(){
+  const box=g('heatmapGrid');if(!box)return;box.innerHTML='';
+  let counts={};const dStr=d=>`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  state.tasks.forEach(t=>{if(t.completedAt){let k=dStr(new Date(t.completedAt));counts[k]=(counts[k]||0)+1;}});
+  state.archivedTasks.forEach(t=>{if(t.completedAt){let k=dStr(new Date(t.completedAt));counts[k]=(counts[k]||0)+1;}});
+  state.habits.forEach(h=>h.completedDates.forEach(d=>{let k=dStr(new Date(d));counts[k]=(counts[k]||0)+1;}));
+  const today=new Date();
+  for(let w=12;w>=0;w--){
+    const col=document.createElement('div');col.className='heatmap-col';
+    for(let j=0;j<7;j++){
+      const td=new Date();td.setDate(today.getDate()-(w*7+(6-j)));
+      const k=dStr(td),c=counts[k]||0;
+      const lv=c===0?0:c<=2?1:c<=4?2:c<=6?3:4;
+      const cell=document.createElement('div');cell.className=`heatmap-cell${lv>0?' l'+lv:''}`;cell.title=`${td.toLocaleDateString()}: ${c} activities`;col.appendChild(cell);
+    }
+    box.appendChild(col);
+  }
+}
+
+// ===== NOTES =====
+function openNoteModal(n=null){
+  if(n){g('noteModalTitle').textContent='Edit Note';g('editingNoteId').value=n.id;g('noteInputTitle').value=n.title;g('noteInputContent').value=n.content;g('noteInputTags').value=(n.tags||[]).join(', ');g('btnDeleteNote').classList.remove('hidden');}
+  else{g('noteModalTitle').textContent='New Brain Dump';g('editingNoteId').value='';g('noteInputTitle').value='';g('noteInputContent').value='';g('noteInputTags').value='';g('btnDeleteNote').classList.add('hidden');}
+  g('addNoteSheet').classList.remove('hidden');
+}
+g('noteForm').addEventListener('submit',e=>{e.preventDefault();playHaptic('pop');const id=g('editingNoteId').value,tags=g('noteInputTags').value.split(',').map(t=>t.trim()).filter(Boolean);
+  const n={id:id||Date.now().toString(),title:g('noteInputTitle').value.trim(),content:g('noteInputContent').value,tags,updated:new Date().toISOString()};
+  if(id){const ix=state.notes.findIndex(x=>x.id===id);if(ix>-1)state.notes[ix]=n;}else state.notes.push(n);
+  saveData();renderNotes();g('addNoteSheet').classList.add('hidden');});
+g('btnDeleteNote').addEventListener('click',()=>{state.notes=state.notes.filter(x=>x.id!==g('editingNoteId').value);saveData();renderNotes();g('addNoteSheet').classList.add('hidden');playHaptic('tick');});
+if(g('notesSearch'))g('notesSearch').addEventListener('input',renderNotes);
+function renderNotes(){
+  const box=g('notesGrid');box.innerHTML='';const q=(g('notesSearch')?.value||'').toLowerCase();
+  const filtered=[...state.notes].sort((a,b)=>new Date(b.updated)-new Date(a.updated)).filter(n=>!q||n.title.toLowerCase().includes(q)||n.content.toLowerCase().includes(q));
+  if(!filtered.length){box.innerHTML=`<div class="empty-state"><span class="emoji">🧠</span><p>${q?'No notes match your search':'Start capturing ideas. Your second brain awaits!'}</p></div>`;return;}
+  filtered.forEach(n=>{
+    const el=document.createElement('div');el.className='note-card haptic';
+    const tagsHtml=(n.tags||[]).map(t=>`<span class="note-tag">#${t}</span>`).join('');
+    const relTime=getRelativeTime(n.updated);
+    el.innerHTML=`<div class="note-title">${n.title}</div><div class="note-preview">${n.content}</div>${tagsHtml?`<div class="note-tags">${tagsHtml}</div>`:''}<div class="note-date">${relTime}</div>`;
+    el.addEventListener('click',()=>openNoteModal(n));box.appendChild(el);
+  });
+}
+
+// ===== FINANCE =====
+window.setFinFilter=function(f){state.finFilter=f;['All','Exp','Inc'].forEach(x=>{const b=g('filter'+x);if(b)b.classList.toggle('active',f===x.toLowerCase()||f==='all'&&x==='All');});renderFinance();};
+function openFinanceModal(tx=null){
+  if(tx){g('editingFinId').value=tx.id;g('finAmount').value=tx.amount;g('finDesc').value=tx.desc;g('finType').value=tx.type;g('finCategory').value=tx.category||'other';document.querySelectorAll('.ft-btn[data-type]').forEach(b=>b.classList.toggle('active',b.dataset.type===tx.type));g('btnDeleteFin').classList.remove('hidden');}
+  else{g('editingFinId').value='';g('finAmount').value='';g('finDesc').value='';g('btnDeleteFin').classList.add('hidden');g('finType').value='EXPENSE';document.querySelectorAll('.ft-btn[data-type]').forEach((b,i)=>b.classList.toggle('active',i===0));}
+  g('addFinanceSheet').classList.remove('hidden');
+}
+g('financeForm').addEventListener('submit',e=>{e.preventDefault();playHaptic('pop');const id=g('editingFinId').value;
+  const tx={id:id||Date.now().toString(),amount:parseFloat(g('finAmount').value),desc:g('finDesc').value,type:g('finType').value,category:g('finCategory').value,date:new Date().toISOString()};
+  if(id){const ix=state.transactions.findIndex(x=>x.id===id);if(ix>-1)state.transactions[ix]=tx;}else state.transactions.push(tx);
+  saveData();renderFinance();g('addFinanceSheet').classList.add('hidden');});
+g('btnDeleteFin').addEventListener('click',()=>{state.transactions=state.transactions.filter(x=>x.id!==g('editingFinId').value);saveData();renderFinance();g('addFinanceSheet').classList.add('hidden');playHaptic('tick');});
+document.querySelectorAll('.ft-btn[data-type]').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('.ft-btn[data-type]').forEach(b=>b.classList.remove('active'));btn.classList.add('active');g('finType').value=btn.dataset.type;playHaptic('tick');}));
+
+function renderFinance(){
+  const fmt=new Intl.NumberFormat('th-TH',{style:'currency',currency:'THB'});
+  let inc=0,exp=0;const ls=g('transactionList');ls.innerHTML='';
+  const now=new Date(),thisMonth=`${now.getFullYear()}-${now.getMonth()}`;
+  let monthExp=0;
+  [...state.transactions].sort((a,b)=>new Date(b.date)-new Date(a.date)).forEach(tx=>{
+    if(tx.type==='INCOME')inc+=tx.amount;else exp+=tx.amount;
+    const txDate=new Date(tx.date);if(`${txDate.getFullYear()}-${txDate.getMonth()}`===thisMonth&&tx.type==='EXPENSE')monthExp+=tx.amount;
+    if(state.finFilter==='exp'&&tx.type!=='EXPENSE')return;if(state.finFilter==='inc'&&tx.type!=='INCOME')return;
+    const el=document.createElement('div');el.className=`txn-item ${tx.type}`;
+    const icon=CAT_ICONS[tx.category]||'📦';
+    el.innerHTML=`<div class="txn-cat-icon">${icon}</div><div class="txn-info"><div class="txn-desc">${tx.desc}</div><div class="txn-meta">${txDate.toLocaleDateString('th-TH')} · ${tx.category||'other'}</div></div><div class="txn-amount">${tx.type==='INCOME'?'+':'-'}${fmt.format(tx.amount)}</div>`;
+    el.addEventListener('click',()=>openFinanceModal(tx));ls.appendChild(el);
+  });
+  g('totalIncome').textContent=fmt.format(inc);g('totalExpense').textContent=fmt.format(exp);g('totalBalance').textContent=fmt.format(inc-exp);
+  // Budget bar
+  const budget=state.financeMeta?.budget||15000;const pct=Math.min(100,(monthExp/budget)*100);
+  const fill=g('budgetFill');if(fill){fill.style.width=pct+'%';fill.classList.toggle('danger',pct>=85);}
+  if(g('budgetSpent'))g('budgetSpent').textContent=fmt.format(monthExp);
+  if(g('budgetTotal'))g('budgetTotal').textContent=`/ ${fmt.format(budget)}`;
+  if(g('budgetWarningIcon'))g('budgetWarningIcon').textContent=pct>=85?'🚨':'';
+  renderDailySpendingChart();renderSubscriptions();
+}
+
+function renderDailySpendingChart(){
+  const chart=g('dailyChart'),labels=g('dailyLabels');if(!chart||!labels)return;
+  chart.innerHTML='';labels.innerHTML='';
+  const days=7;const today=new Date();const dayData=[];
+  for(let i=days-1;i>=0;i--){
+    const d=new Date();d.setDate(today.getDate()-i);const dStr=d.toDateString();
+    const total=state.transactions.filter(tx=>new Date(tx.date).toDateString()===dStr&&tx.type==='EXPENSE').reduce((s,tx)=>s+tx.amount,0);
+    dayData.push({d,total,isToday:i===0});
+  }
+  const maxAmt=Math.max(...dayData.map(x=>x.total),100);
+  const fmtShort=n=>n>=1000?`${(n/1000).toFixed(1)}k`:String(Math.round(n));
+  const dayNames=['Su','Mo','Tu','We','Th','Fr','Sa'];
+  dayData.forEach(({d,total,isToday})=>{
+    const wrap=document.createElement('div');wrap.className='chart-bar-wrap';
+    const pct=total>0?(total/maxAmt)*100:3;
+    wrap.innerHTML=`<div class="chart-bar-val">${total>0?fmtShort(total):''}</div><div class="chart-bar${isToday?' today':''}" style="height:${pct}%;background:${isToday?'':'linear-gradient(180deg,rgba(139,92,246,0.7),rgba(6,182,212,0.5))'}"></div>`;
+    chart.appendChild(wrap);
+    const lbl=document.createElement('div');lbl.className=`chart-day-lbl${isToday?' ':''}`;lbl.style.fontWeight=isToday?'800':'400';lbl.style.color=isToday?'var(--warning)':'var(--text-secondary)';lbl.textContent=dayNames[d.getDay()];labels.appendChild(lbl);
+  });
+  // Today vs yesterday
+  const todayAmt=dayData[6].total,yestAmt=dayData[5].total;
+  if(g('todaySpending')){const fmt2=new Intl.NumberFormat('th-TH',{style:'currency',currency:'THB'});g('todaySpending').textContent=fmt2.format(todayAmt);}
+  if(g('todayVsYesterday')){
+    if(yestAmt===0)g('todayVsYesterday').textContent='—';
+    else{const diff=((todayAmt-yestAmt)/yestAmt*100).toFixed(0);g('todayVsYesterday').textContent=(diff>0?'+':'')+diff+'% from yday';g('todayVsYesterday').style.color=diff>0?'var(--danger)':'var(--success)';}
+  }
+  if(g('dailyAvgText')){const avg=dayData.reduce((s,x)=>s+x.total,0)/days;const fmt3=new Intl.NumberFormat('th-TH',{style:'currency',currency:'THB'});g('dailyAvgText').textContent=fmt3.format(avg)+' avg/day';}
+}
+
+// ===== SUBSCRIPTIONS =====
+g('btnAddSub').addEventListener('click',()=>{g('subInputName').value='';g('subInputAmount').value='';g('subInputDay').value='';g('editingSubId').value='';g('btnDeleteSub').classList.add('hidden');g('addSubSheet').classList.remove('hidden');});
+g('subForm').addEventListener('submit',e=>{e.preventDefault();playHaptic('pop');const id=g('editingSubId').value;
+  const sub={id:id||Date.now().toString(),name:g('subInputName').value.trim(),amount:parseFloat(g('subInputAmount').value),day:parseInt(g('subInputDay').value)};
+  if(id){const ix=state.subscriptions.findIndex(x=>x.id===id);if(ix>-1)state.subscriptions[ix]=sub;}else state.subscriptions.push(sub);
+  saveData();renderSubscriptions();g('addSubSheet').classList.add('hidden');});
+g('btnDeleteSub').addEventListener('click',()=>{state.subscriptions=state.subscriptions.filter(x=>x.id!==g('editingSubId').value);saveData();renderSubscriptions();g('addSubSheet').classList.add('hidden');playHaptic('tick');});
+function renderSubscriptions(){
+  const box=g('subList');if(!box)return;box.innerHTML='';const fmt=new Intl.NumberFormat('th-TH',{style:'currency',currency:'THB'});
+  const today=new Date().getDate();
+  [...state.subscriptions].sort((a,b)=>{const da=(a.day-today+31)%31,db=(b.day-today+31)%31;return da-db;}).forEach(sub=>{
+    const daysLeft=(sub.day-today+31)%31;const isToday=daysLeft===0||sub.day===today;
+    const el=document.createElement('div');el.className='sub-item';
+    el.innerHTML=`<div><div style="font-weight:700">${sub.name}</div><div style="font-size:0.75rem;color:var(--text-secondary)">Every month, day ${sub.day}</div></div><div style="display:flex;align-items:center;gap:10px"><span style="font-weight:700;color:var(--danger)">${fmt.format(sub.amount)}</span><span class="sub-countdown ${isToday||daysLeft<=3?'soon':'ok'}">${isToday?'Today!':'In '+daysLeft+'d'}</span></div>`;
+    el.addEventListener('click',()=>{g('subInputName').value=sub.name;g('subInputAmount').value=sub.amount;g('subInputDay').value=sub.day;g('editingSubId').value=sub.id;g('btnDeleteSub').classList.remove('hidden');g('addSubSheet').classList.remove('hidden');});
+    box.appendChild(el);
+  });
+}
+
+// Budget Modal
+g('btnEditBudget').addEventListener('click',()=>{g('budgetInputAmount').value=state.financeMeta?.budget||15000;g('budgetSheet').classList.remove('hidden');});
+g('budgetForm').addEventListener('submit',e=>{e.preventDefault();state.financeMeta={budget:parseFloat(g('budgetInputAmount').value)||15000};saveData();renderFinance();g('budgetSheet').classList.add('hidden');playHaptic('pop');});
+
+// ===== JOURNAL =====
+let selStars=0;
+document.querySelectorAll('.star').forEach(st=>st.addEventListener('click',e=>{playHaptic('tick');selStars=parseInt(e.target.dataset.val);document.querySelectorAll('.star').forEach(s=>{s.textContent=parseInt(s.dataset.val)<=selStars?'star':'star_outline';s.classList.toggle('active',parseInt(s.dataset.val)<=selStars);});}));
+g('btnSaveJournal').addEventListener('click',()=>{if(!selStars)return alert('Please rate your day first.');playHaptic('pop');addXP(10);
+  state.journal.push({id:Date.now().toString(),date:new Date().toISOString(),stars:selStars,text:g('gratitudeInput').value.trim()});
+  saveData();renderJournal();g('gratitudeInput').value='';g('journalFeedback').style.display='block';setTimeout(()=>g('journalFeedback').style.display='none',3000);});
+function renderJournal(){
+  const box=g('journalHistoryContainer');box.innerHTML='';
+  [...state.journal].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,20).forEach(j=>{
+    const el=document.createElement('div');el.className='journal-item';
+    el.innerHTML=`<div class="journal-head"><span>${new Date(j.date).toLocaleDateString('th-TH')}</span><span class="journal-stars">${'★'.repeat(j.stars)}</span></div>${j.text?`<div class="journal-text">"${j.text}"</div>`:''}`; box.appendChild(el);
+  });
+}
+
+// ===== INSIGHT STATS =====
+function renderInsightStats(){
+  const today=new Date().toDateString();const doneTasks=state.tasks.filter(t=>t.status==='done').length;
+  const habitsDone=state.habits.filter(h=>h.completedDates.includes(today)).length;
+  const habitPct=state.habits.length>0?Math.round((habitsDone/state.habits.length)*100):0;
+  const bestStreak=Math.max(0,...state.habits.map(h=>calcStreak(h.completedDates)));
+  if(g('statTasks'))g('statTasks').textContent=doneTasks;
+  if(g('statHabits'))g('statHabits').textContent=habitPct+'%';
+  if(g('statStreak'))g('statStreak').textContent=bestStreak;
+}
+
+// ===== SHOP & THEMES =====
+document.getElementById('tabShopRewards').addEventListener('click',()=>{g('tabShopRewards').classList.add('active');g('tabShopThemes').classList.remove('active');g('shopContentRewards').classList.remove('hidden');g('shopContentThemes').classList.add('hidden');});
+document.getElementById('tabShopThemes').addEventListener('click',()=>{g('tabShopThemes').classList.add('active');g('tabShopRewards').classList.remove('active');g('shopContentThemes').classList.remove('hidden');g('shopContentRewards').classList.add('hidden');});
+g('btnShop').addEventListener('click',()=>{playHaptic('tick');g('shopSheet').classList.remove('hidden');renderShop();});
+g('rewardForm').addEventListener('submit',e=>{e.preventDefault();playHaptic('pop');state.rewards.push({id:Date.now().toString(),name:g('rewardInputName').value.trim(),cost:parseInt(g('rewardInputCost').value)});g('rewardInputName').value='';g('rewardInputCost').value='';saveData();renderShop();});
+function renderShop(){
+  const box=g('rewardGrid'),tBox=g('themeGrid');box.innerHTML='';if(tBox)tBox.innerHTML='';
+  if(!state.gamify.coins)state.gamify.coins=0;g('shopCoinText').textContent=state.gamify.coins;
+  state.rewards.forEach(r=>{const el=document.createElement('div');el.className='shop-item';const dis=state.gamify.coins<r.cost?'disabled':'';el.innerHTML=`<div class="shop-item-info"><div class="shop-item-name">${r.name}</div><span class="shop-item-cost">🪙 ${r.cost}</span></div><button class="shop-delete-btn" onclick="deleteReward('${r.id}')"><span class="material-icons-round">delete</span></button><button class="shop-buy-btn haptic" ${dis} onclick="buyReward('${r.id}')">Buy</button>`;box.appendChild(el);});
+  if(tBox)THEMES.forEach(th=>{
+    const el=document.createElement('div');el.className='shop-item';
+    const unlocked=state.gamify.unlockedThemes?.includes(th.id),isActive=state.gamify.activeTheme===th.id,dis=state.gamify.coins<th.cost?'disabled':'';
+    let btn=isActive?`<button class="shop-buy-btn active-theme" disabled>Active</button>`:unlocked?`<button class="shop-buy-btn haptic" onclick="applyTheme('${th.id}')">Use</button>`:`<button class="shop-buy-btn haptic" ${dis} onclick="buyTheme('${th.id}')">Buy</button>`;
+    el.innerHTML=`<div class="theme-swatch" style="background:${th.color}"></div><div class="shop-item-info"><div class="shop-item-name">${th.name}</div><span class="shop-item-cost">🪙 ${th.cost}</span></div>${btn}`;tBox.appendChild(el);
+  });
+}
+window.deleteReward=id=>{playHaptic('tick');state.rewards=state.rewards.filter(x=>x.id!==id);saveData();renderShop();};
+window.buyReward=id=>{const r=state.rewards.find(x=>x.id===id);if(r&&state.gamify.coins>=r.cost){state.gamify.coins-=r.cost;playHaptic('chime');saveData();renderShop();renderGamification();showToast(`Purchased: ${r.name}!`,'success','🎉');}
+else showToast('Not enough coins!','danger','🪙');};
+window.buyTheme=id=>{const th=THEMES.find(x=>x.id===id);if(th&&state.gamify.coins>=th.cost){state.gamify.coins-=th.cost;if(!state.gamify.unlockedThemes)state.gamify.unlockedThemes=[];state.gamify.unlockedThemes.push(id);playHaptic('levelup');applyTheme(id);showToast(`${th.name} theme unlocked!`,'success','🎨');}
+else showToast('Not enough coins!','danger','🪙');};
+window.applyTheme=id=>{state.gamify.activeTheme=id;document.body.setAttribute('data-theme',id);saveData();renderShop();showToast('Theme applied!','success','✨');};
+
+// ===== HELPER: RELATIVE TIME =====
+function getRelativeTime(iso){
+  const diff=Date.now()-new Date(iso).getTime();
+  if(diff<60000)return'just now';
+  if(diff<3600000)return`${Math.floor(diff/60000)}m ago`;
+  if(diff<86400000)return`${Math.floor(diff/3600000)}h ago`;
+  return`${Math.floor(diff/86400000)}d ago`;
+}
+
+// ===== AMBIENT & POMODORO =====
+const AMBIENT={rain:new Audio('https://actions.google.com/sounds/v1/weather/rain_heavy_loud.ogg'),forest:new Audio('https://actions.google.com/sounds/v1/ambiences/daytime_forest_bonfire.ogg'),cafe:new Audio('https://actions.google.com/sounds/v1/crowds/battle_crowd_2.ogg')};
+Object.values(AMBIENT).forEach(a=>{a.loop=true;a.volume=0.5;});let activeAmbient=null;
+document.querySelectorAll('.ambient-btn').forEach(btn=>btn.addEventListener('click',()=>{const type=btn.dataset.sound;playHaptic('tick');Object.values(AMBIENT).forEach(a=>a.pause());document.querySelectorAll('.ambient-btn').forEach(b=>b.classList.remove('active'));if(activeAmbient===type)activeAmbient=null;else{activeAmbient=type;btn.classList.add('active');if(!pomPaused&&!g('focusOverlay').classList.contains('hidden'))AMBIENT[type].play();}}));
+
+const focusOverlay=g('focusOverlay');let pomIntervalId,pomEndTime,pomTotal,pomPaused=false,pomLeftPaused=0;
+function startFocus(title,mins){
+  playHaptic('pop');document.querySelectorAll('.bottom-sheet-overlay').forEach(el=>el.classList.add('hidden'));
+  g('focusTaskName').textContent=title;pomTotal=mins*60;pomEndTime=Date.now()+pomTotal*1000;pomPaused=false;
+  if(activeAmbient)AMBIENT[activeAmbient].play();updatePomDisplay(pomTotal);focusOverlay.classList.remove('hidden');clearInterval(pomIntervalId);
+  // Show strict mode warning after 3 seconds
+  const warn=g('strictPenaltyWarning');if(warn){warn.style.display='block';warn.style.animation='blink 2s infinite';}
+  if(Notification.permission!=='granted'&&state.notificationsEnabled)Notification.requestPermission();
+  pomIntervalId=setInterval(()=>{
+    if(!pomPaused){let left=Math.max(0,Math.ceil((pomEndTime-Date.now())/1000));updatePomDisplay(left);
+      if(left===0){playHaptic('chime');clearInterval(pomIntervalId);addXP(50,50,window.innerWidth/2,window.innerHeight/2);if(activeAmbient)AMBIENT[activeAmbient].pause();if(warn)warn.style.display='none';if(Notification.permission==='granted')new Notification('Focus Complete! 🎯',{body:`Done: ${title}. +50 XP earned!`,icon:'icon.svg'});}}
+  },1000);
+}
+g('btnFocusEvent').addEventListener('click',()=>{const ev=state.events.find(e=>e.id===g('editingEventId').value);if(ev)startFocus(ev.title,t2m(ev.end)-t2m(ev.start));});
+g('btnFocusTask').addEventListener('click',()=>{const tk=state.tasks.find(e=>e.id===g('editingTaskId').value);if(tk)startFocus(tk.title,25);});
+function updatePomDisplay(left){const m=Math.floor(left/60),s=left%60;g('pomodoroTimeText').textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;g('pomodoroProgress').style.strokeDashoffset=565.48-(565.48*(left/pomTotal));}
+g('btnToggleFocus').addEventListener('click',e=>{playHaptic('tick');pomPaused=!pomPaused;const icon=g('focusPlayIcon'),btn=e.currentTarget;if(pomPaused){icon.textContent='play_arrow';btn.classList.replace('pause','play');g('focusPhaseText').textContent='paused';pomLeftPaused=Math.max(0,Math.ceil((pomEndTime-Date.now())/1000));if(activeAmbient)AMBIENT[activeAmbient].pause();}else{icon.textContent='pause';btn.classList.replace('play','pause');g('focusPhaseText').textContent='time to focus';pomEndTime=Date.now()+pomLeftPaused*1000;if(activeAmbient)AMBIENT[activeAmbient].play();}});
+g('btnExitFocus').addEventListener('click',()=>{
+  playHaptic('tick');clearInterval(pomIntervalId);
+  const warn=g('strictPenaltyWarning');if(warn)warn.style.display='none';
+  if(pomTotal>0&&pomEndTime&&Math.ceil((pomEndTime-Date.now())/1000)>30){
+    state.gamify.xp=Math.max(0,state.gamify.xp-50);state.gamify.coins=Math.max(0,(state.gamify.coins||0)-50);
+    saveData();renderGamification();
+    spawnFloatingText('-50 XP',window.innerWidth/2,200,'#EF4444');
+    showToast('Strict Mode: -50 XP for quitting early!','danger','🔥');
+  }
+  pomTotal=0;focusOverlay.classList.add('hidden');if(activeAmbient)AMBIENT[activeAmbient].pause();
+});
+
+// ===== NOTIFICATIONS & TIME =====
+g('btnNotifications').addEventListener('click',()=>{initAudio();if(Notification.permission==='default')Notification.requestPermission().then(p=>{state.notificationsEnabled=(p==='granted');renderNotificationsIcon();showToast(p==='granted'?'Notifications enabled!':'Notifications blocked by browser',p==='granted'?'success':'danger',p==='granted'?'🔔':'🔕');});else if(Notification.permission==='granted'){playHaptic('chime');showToast('Already active — alerts 5 mins before events','success','🔔');}});
+function renderNotificationsIcon(){const ic=g('iconAlert');ic.textContent=state.notificationsEnabled?'notifications_active':'notifications_off';ic.classList.toggle('text-success',state.notificationsEnabled);}
+function updateCurrentTime(){
+  const now=new Date(),mins=now.getHours()*60+now.getMinutes();timeLine.style.top=`${mins}px`;
+  if(state.activeTab==='view-timeline')timeLine.scrollIntoView({behavior:'smooth',block:'center'});
+  if(state.notificationsEnabled&&Notification.permission==='granted'){
+    const ns=`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    const t5=new Date(now.getTime()+300000);const t5s=`${String(t5.getHours()).padStart(2,'0')}:${String(t5.getMinutes()).padStart(2,'0')}`;
+    state.events.forEach(ev=>{if(ev.start===t5s)new Notification(`Up Next: ${ev.title}`,{body:'Starts in 5 mins.'});else if(ev.start===ns)new Notification(`Starting Now: ${ev.title}`);});
+  }
+}
+
+// ===== BACKUP =====
+g('btnExport').addEventListener('click',()=>{
+  playHaptic('tick');
+  const d='data:text/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(state));
+  const a=document.createElement('a');a.href=d;a.download=`lifeos_${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);a.click();a.remove();
+  showToast('Backup exported!','success','💾');
+});
+g('btnImport').addEventListener('click',()=>{playHaptic('tick');g('importFileInput').click();});
+g('importFileInput').addEventListener('change',e=>{
+  const file=e.target.files[0];if(!file)return;
+  const r=new FileReader();
+  r.onload=ev=>{try{
+    const p=JSON.parse(ev.target.result);
+    if(p.events||p.tasks){state.events=p.events||[];state.tasks=p.tasks||[];state.habits=p.habits||[];state.transactions=p.transactions||[];state.journal=p.journal||[];state.notes=p.notes||[];if(p.gamify)state.gamify=p.gamify;saveData();renderAll();showToast('Data restored!','success','✅');}
+    else showToast('Invalid backup file','danger','❌');
+  }catch{showToast('Could not read file','danger','❌');}};
+  r.readAsText(file);e.target.value='';
+});
+
+// ===== RENDER HEADER =====
+function renderDayStats(){
+  const d=new Date();const days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  g('headerSubtitle').textContent=`${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
+  const h=d.getHours();g('greetingMsg').textContent=h<12?'Good Morning,':h<18?'Good Afternoon,':'Good Evening,';
+  const w=g('weekSlider');w.innerHTML='';
+  for(let i=-2;i<=4;i++){const l=new Date();l.setDate(d.getDate()+i);const hasEv=state.events.some(ev=>new Date().toDateString()===l.toDateString());w.innerHTML+=`<div class="day-card haptic${i===0?' active':''}${hasEv?' has-event':''}"><div class="day-name">${days[l.getDay()].substr(0,3)}</div><div class="day-num">${l.getDate()}</div></div>`;}
+}
+
+// ===== INIT =====
+function renderAll(){renderGamification();renderEvents();renderTasks();renderHabits();renderHeatmap();renderFinance();renderJournal();renderNotes();renderInsightStats();}
+
+// SVG gradient for pomodoro ring
+function injectSVGDefs(){
+  const svg=document.querySelector('.pomodoro-svg');
+  if(!svg)return;
+  const defs=document.createElementNS('http://www.w3.org/2000/svg','defs');
+  defs.innerHTML=`<linearGradient id="pomGrad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#7C3AED"/><stop offset="100%" stop-color="#06B6D4"/></linearGradient>`;
+  svg.prepend(defs);
+}
+
+function init(){
+  processDailyMaintenance();
+  if(!state.gamify.activeTheme)state.gamify.activeTheme='default';
+  if(!state.gamify.unlockedThemes)state.gamify.unlockedThemes=['default'];
+  document.body.setAttribute('data-theme',state.gamify.activeTheme);
+  document.body.addEventListener('click',initAudio,{once:true});document.body.addEventListener('touchstart',initAudio,{once:true});
+  grid.innerHTML='';for(let i=0;i<24;i++){const row=document.createElement('div');row.className='hour-row';row.innerHTML=`<div class="time-label">${String(i).padStart(2,'0')}:00</div>`;grid.appendChild(row);}
+  const bgClick=document.createElement('div');bgClick.className='timeline-interactive-bg';evCon.parentElement.appendChild(bgClick);
+  bgClick.addEventListener('click',e=>{const y=e.clientY-bgClick.getBoundingClientRect().top,mins=Math.floor(y),h=Math.floor(mins/60),m=Math.floor((mins%60)/5)*5;const st=m2t(h*60+m),en=m2t(h*60+m+60);openEventModal({title:'',start:st,end:en,color:EVT_COLORS[0].id});});
+  renderColorPicker();renderDayStats();renderAll();renderNotificationsIcon();injectSVGDefs();
+  updateCurrentTime();setInterval(updateCurrentTime,60000);
+  g('fabBtn').addEventListener('click',()=>{playHaptic('tick');if(state.activeTab==='view-timeline')openEventModal();else if(state.activeTab==='view-projects')openTaskModal();else if(state.activeTab==='view-finance')openFinanceModal();else if(state.activeTab==='view-notes')openNoteModal();});
+  document.querySelectorAll('.close-sheet-btn').forEach(btn=>btn.addEventListener('click',()=>{playHaptic('tick');document.querySelectorAll('.bottom-sheet-overlay').forEach(el=>el.classList.add('hidden'));}));
+  document.querySelectorAll('.nav-btn').forEach(btn=>btn.addEventListener('click',()=>{playHaptic('tick');document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const t=btn.dataset.target;document.querySelectorAll('.view-section').forEach(s=>s.classList.remove('active'));g(t).classList.add('active');state.activeTab=t;g('fabBtn').style.transform=t==='view-insight'?'scale(0)':'scale(1)';g('timelineHeaderExt').classList.toggle('collapse',t!=='view-timeline');if(t==='view-insight')renderInsightStats();if(t==='view-finance')renderFinance();}));
+}
+document.addEventListener('DOMContentLoaded',init);

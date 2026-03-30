@@ -3,32 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>LifeOS — Gamified Second Brain</title>
-    
+    <title>LifeOS — Ultimate Life Manager</title>
+    <meta name="description" content="Your all-in-one gamified life manager. Track habits, tasks, finance, and journal.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
-    
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#030305">
     <link rel="apple-touch-icon" href="icon.svg">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="LifeOS">
-
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <!-- Gamification Confetti Overlay -->
     <div id="confettiOverlay" class="confetti-overlay hidden"></div>
-    
-    <svg style="display: none;">
-        <filter id="noise">
-            <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch" />
-            <feColorMatrix type="matrix" values="1 0 0 0 0, 0 1 0 0 0, 0 0 1 0 0, 0 0 0 0.1 0" />
-        </filter>
-    </svg>
+    <svg style="display:none"><filter id="noise"><feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="matrix" values="1 0 0 0 0,0 1 0 0 0,0 0 1 0 0,0 0 0 0.1 0"/></filter></svg>
 
     <div class="mesh-bg">
         <div class="mesh-blob blob-1"></div>
@@ -38,7 +29,6 @@
     </div>
 
     <div class="app-container">
-        
         <header class="app-header glass-panel">
             <div class="header-top">
                 <div class="month-selector">
@@ -46,7 +36,7 @@
                     <p id="headerSubtitle" class="text-sm text-secondary">Loading...</p>
                 </div>
                 <div class="header-actions">
-                    <button class="icon-btn" id="btnNotifications" title="Turn on Alarms">
+                    <button class="icon-btn" id="btnNotifications" title="Notifications">
                         <span class="material-icons-round" id="iconAlert">notifications_off</span>
                     </button>
                     <button class="icon-btn" id="btnToday">
@@ -54,18 +44,13 @@
                     </button>
                 </div>
             </div>
-            
-            <!-- Gamification EXP Bar & Coin -->
             <div class="exp-container">
                 <div class="exp-text">
                     <span>LVL <span id="levelText">1</span> <span id="xpText" class="xp-val">(0/100 XP)</span></span>
                     <button class="coin-badge haptic" id="btnShop">🪙 <span id="coinText">0</span></button>
                 </div>
-                <div class="exp-bar">
-                    <div class="exp-fill" id="expFill"></div>
-                </div>
+                <div class="exp-bar"><div class="exp-fill" id="expFill"></div></div>
             </div>
-            
             <div id="timelineHeaderExt" class="header-ext">
                 <div class="week-slider" id="weekSlider"></div>
             </div>
@@ -74,105 +59,143 @@
         <!-- View 1: Timeline -->
         <main id="view-timeline" class="view-section active">
             <div class="timeline-container" id="timelineContainer">
-                <div class="timeline-grid" id="timelineGrid">
-                    <!-- Hours -->
-                </div>
-                <div class="current-time-line" id="currentTimeLine">
-                    <div class="current-time-dot"></div>
-                </div>
-                <div class="events-container" id="eventsContainer">
-                    <!-- Events -->
-                </div>
+                <div class="timeline-grid" id="timelineGrid"></div>
+                <div class="current-time-line" id="currentTimeLine"><div class="current-time-dot"></div></div>
+                <div class="events-container" id="eventsContainer"></div>
             </div>
         </main>
 
-        <!-- View 2: Projects (Kanban) -->
+        <!-- View 2: Projects (Kanban + Habits) -->
         <main id="view-projects" class="view-section">
             <div class="tasks-container">
-                <!-- Habits Section -->
                 <div class="section-heading mb-sm">
-                    <div style="display:flex; flex-direction:column;">
+                    <div>
                         <h3>Daily Habits 🔥</h3>
-                        <span style="font-size:0.75rem; color:var(--text-secondary);">Long-press to edit</span>
+                        <span style="font-size:0.72rem;color:var(--text-secondary)">Hold to edit · Tap to complete</span>
                     </div>
-                    <button class="icon-btn-small glowing haptic" id="btnAddHabit" style="background:var(--brand);"><span class="material-icons-round">add</span></button>
+                    <button class="icon-btn-small glowing haptic" id="btnAddHabit" style="background:var(--brand)"><span class="material-icons-round">add</span></button>
                 </div>
-                <div class="habits-slider" id="habitsContainer">
-                    <!-- Habits JS -->
+                <div class="habits-slider" id="habitsContainer"></div>
+                <!-- Habit Heatmap -->
+                <div class="section-heading" style="margin-top:24px">
+                    <h3>Activity Heatmap 🟩</h3>
+                </div>
+                <div class="heatmap-wrap glass-panel" style="padding:12px;border-radius:16px;overflow-x:auto;margin-bottom:24px">
+                    <div id="heatmapGrid" style="display:flex;gap:3px;min-width:520px"></div>
                 </div>
 
-                <!-- Kanban Board -->
-                <div class="section-heading" style="margin-top: 32px;">
+                <div class="section-heading">
                     <h3>Smart Board</h3>
                     <span id="taskProgressText" class="task-count">0% Done</span>
                 </div>
-                
                 <div class="kanban-wrapper">
-                    <div class="kanban-col" id="col-todo">
+                    <div class="kanban-col">
                         <div class="kanban-header">To Do <span class="badge" id="badge-todo">0</span></div>
-                        <div class="kanban-list" data-status="todo" id="list-todo"></div>
+                        <div class="kanban-list" id="list-todo"></div>
                     </div>
-                    <div class="kanban-col" id="col-doing">
+                    <div class="kanban-col">
                         <div class="kanban-header doing">Doing <span class="badge" id="badge-doing">0</span></div>
-                        <div class="kanban-list" data-status="doing" id="list-doing"></div>
+                        <div class="kanban-list" id="list-doing"></div>
                     </div>
-                    <div class="kanban-col" id="col-done">
+                    <div class="kanban-col">
                         <div class="kanban-header done">Done <span class="badge" id="badge-done">0</span></div>
-                        <div class="kanban-list" data-status="done" id="list-done"></div>
+                        <div class="kanban-list" id="list-done"></div>
                     </div>
                 </div>
             </div>
         </main>
 
-        <!-- View 3: Notes (Second Brain) NEW -->
+        <!-- View 3: Notes (Second Brain) -->
         <main id="view-notes" class="view-section">
             <div class="notes-container">
                 <div class="section-heading mb-sm">
                     <h3>Second Brain 🧠</h3>
                 </div>
-                <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 24px;">Dump your ideas, book summaries, and deep thoughts here.</p>
-                
-                <div id="notesGrid" class="notes-grid">
-                    <!-- Notes Content JS -->
+                <div id="notesSearchWrap" style="position:relative;margin-bottom:16px">
+                    <span class="material-icons-round" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-secondary);font-size:18px">search</span>
+                    <input id="notesSearch" type="text" placeholder="Search notes..." style="width:100%;background:rgba(0,0,0,0.3);border:1px solid var(--glass-border);border-radius:12px;padding:12px 12px 12px 40px;color:white;font-family:inherit;font-size:0.9rem;outline:none">
                 </div>
+                <div id="notesGrid" class="notes-grid"></div>
             </div>
         </main>
 
-        <!-- View 4: Finance -->
+        <!-- View 4: Finance — UPGRADED -->
         <main id="view-finance" class="view-section">
             <div class="finance-container">
+
+                <!-- Budget Radar -->
+                <div class="budget-container glass-panel mb-sm" style="padding:16px;border-radius:16px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                        <span style="font-size:0.75rem;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px">Monthly Budget <span id="budgetWarningIcon"></span></span>
+                        <button id="btnEditBudget" class="icon-btn-small haptic"><span class="material-icons-round" style="font-size:14px">edit</span></button>
+                    </div>
+                    <div class="budget-bar"><div class="budget-fill" id="budgetFill"></div></div>
+                    <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:0.85rem;font-weight:700">
+                        <span id="budgetSpent">฿0</span>
+                        <span id="budgetTotal" style="color:var(--text-secondary)">/ ฿15,000</span>
+                    </div>
+                </div>
+
+                <!-- Balance Card -->
                 <div class="finance-card glass-panel glowing">
                     <div class="balance-label">Total Balance</div>
                     <h1 class="balance-amount" id="totalBalance">฿0.00</h1>
                     <div class="finance-stats">
                         <div class="stat-in">
                             <span class="material-icons-round">arrow_upward</span>
-                            <div>
-                                <div class="lbl">Income</div>
-                                <div class="val" id="totalIncome">฿0.00</div>
-                            </div>
+                            <div><div class="lbl">Income</div><div class="val" id="totalIncome">฿0.00</div></div>
                         </div>
                         <div class="stat-divider"></div>
                         <div class="stat-out">
                             <span class="material-icons-round">arrow_downward</span>
-                            <div>
-                                <div class="lbl">Expense</div>
-                                <div class="val" id="totalExpense">฿0.00</div>
-                            </div>
+                            <div><div class="lbl">Expense</div><div class="val" id="totalExpense">฿0.00</div></div>
                         </div>
                     </div>
                 </div>
 
+                <!-- ⭐ Daily Spending Chart -->
                 <div class="section-heading mt-lg">
-                    <h3>Recent Transactions</h3>
+                    <h3>Daily Spending 📊</h3>
+                    <span id="dailyAvgText" style="font-size:0.8rem;color:var(--text-secondary)">avg / day</span>
                 </div>
-                <div class="transaction-list" id="transactionList">
-                    <!-- TXN JS -->
+                <div class="glass-panel" style="padding:16px;border-radius:16px;margin-bottom:8px">
+                    <div id="dailyChart" style="display:flex;align-items:flex-end;gap:6px;height:80px;overflow-x:auto;padding-bottom:4px"></div>
+                    <div id="dailyLabels" style="display:flex;gap:6px;margin-top:4px;overflow-x:auto"></div>
                 </div>
+
+                <!-- Today's Spending Summary -->
+                <div class="today-spending-card glass-panel" style="padding:16px;border-radius:16px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+                    <div>
+                        <div style="font-size:0.75rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Today's Spending</div>
+                        <div id="todaySpending" style="font-size:1.8rem;font-weight:800;color:var(--danger)">฿0</div>
+                    </div>
+                    <div style="text-align:right">
+                        <div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:4px">vs Yesterday</div>
+                        <div id="todayVsYesterday" style="font-size:1rem;font-weight:700">—</div>
+                    </div>
+                </div>
+
+                <!-- Transactions -->
+                <div class="section-heading mt-lg">
+                    <h3>Transactions</h3>
+                    <div style="display:flex;gap:8px">
+                        <button id="filterAll" class="filter-btn active" onclick="setFinFilter('all')">All</button>
+                        <button id="filterExp" class="filter-btn" onclick="setFinFilter('exp')">Expense</button>
+                        <button id="filterInc" class="filter-btn" onclick="setFinFilter('inc')">Income</button>
+                    </div>
+                </div>
+                <div class="transaction-list" id="transactionList" style="margin-bottom:24px"></div>
+
+                <!-- Subscriptions -->
+                <div class="section-heading mt-lg">
+                    <h3>Fixed Bills 💳</h3>
+                    <button class="icon-btn-small glowing haptic" id="btnAddSub" style="background:var(--brand)"><span class="material-icons-round">add</span></button>
+                </div>
+                <div id="subList" style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px"></div>
             </div>
         </main>
 
-        <!-- View 5: Insight & Mood -->
+        <!-- View 5: Insight & Journal -->
         <main id="view-insight" class="view-section">
             <div class="focus-container">
                 <div class="insight-card glass-panel greeting-card">
@@ -180,6 +203,23 @@
                     <p>Have you reflected on your journey today?</p>
                 </div>
 
+                <!-- Stats Row -->
+                <div class="stats-row">
+                    <div class="stat-mini glass-panel">
+                        <span class="stat-mini-val" id="statTasks">0</span>
+                        <span class="stat-mini-lbl">Tasks Done</span>
+                    </div>
+                    <div class="stat-mini glass-panel">
+                        <span class="stat-mini-val" id="statHabits">0%</span>
+                        <span class="stat-mini-lbl">Habits Today</span>
+                    </div>
+                    <div class="stat-mini glass-panel">
+                        <span class="stat-mini-val" id="statStreak">0</span>
+                        <span class="stat-mini-lbl">Best Streak 🔥</span>
+                    </div>
+                </div>
+
+                <!-- Mood Journal -->
                 <div class="mood-card glass-panel">
                     <h3 class="mb-sm">End of Day Reflection</h3>
                     <div class="stars-container" id="moodStars">
@@ -190,92 +230,56 @@
                         <span class="material-icons-round star" data-val="5">star_outline</span>
                     </div>
                     <textarea id="gratitudeInput" placeholder="What are you grateful for today?" rows="3" class="gratitude-box"></textarea>
-                    <button id="btnSaveJournal" class="submit-btn primary glowing haptic mt-sm" style="width:100%; padding: 12px;">Save Reflection</button>
-                    <div id="journalFeedback" class="text-success text-center mt-sm" style="display:none; font-size:0.8rem;">Saved! See you tomorrow. ✨</div>
+                    <button id="btnSaveJournal" class="submit-btn primary glowing haptic mt-sm" style="width:100%;padding:12px">Save Reflection ✨</button>
+                    <div id="journalFeedback" class="text-success text-center mt-sm" style="display:none;font-size:0.85rem">Saved! 🌙 See you tomorrow.</div>
                 </div>
 
-                <div class="section-heading mt-lg">
-                    <h3>Your Journey</h3>
-                </div>
-                <div class="journal-history" id="journalHistoryContainer">
-                    <!-- Journals JS -->
-                </div>
-                
-                <!-- DATA SYSTEM -->
-                <div class="section-heading mt-lg">
-                    <h3>Data System</h3>
-                </div>
-                <div class="backup-card glass-panel" style="padding: 16px; border-radius: 16px;">
-                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px; text-align: center;">Export your local data to a JSON file or restore a previous backup.</p>
-                    <div style="display: flex; gap: 12px;">
-                        <button id="btnExport" class="submit-btn haptic" style="background: rgba(255,255,255,0.1); border: 1px solid var(--glass-border); color: white; border-radius: 12px; padding: 12px; font-size: 0.9rem;">
-                            <span class="material-icons-round" style="font-size: 18px; vertical-align: middle; margin-right: 4px;">save_alt</span> Export Data
+                <div class="section-heading mt-lg"><h3>Your Journey</h3></div>
+                <div class="journal-history" id="journalHistoryContainer"></div>
+
+                <div class="section-heading mt-lg"><h3>Data System</h3></div>
+                <div class="glass-panel" style="padding:16px;border-radius:16px">
+                    <p style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:12px;text-align:center">Export & backup your data locally.</p>
+                    <div style="display:flex;gap:12px">
+                        <button id="btnExport" class="submit-btn haptic" style="background:rgba(255,255,255,0.08);border:1px solid var(--glass-border);color:white;border-radius:12px;padding:12px;font-size:0.9rem;flex:1">
+                            <span class="material-icons-round" style="font-size:18px;vertical-align:middle;margin-right:4px">save_alt</span>Export
                         </button>
-                        <button id="btnImport" class="submit-btn primary glowing haptic" style="border-radius: 12px; padding: 12px; font-size: 0.9rem;">
-                            <span class="material-icons-round" style="font-size: 18px; vertical-align: middle; margin-right: 4px;">restore</span> Restore
+                        <button id="btnImport" class="submit-btn primary glowing haptic" style="border-radius:12px;padding:12px;font-size:0.9rem;flex:1">
+                            <span class="material-icons-round" style="font-size:18px;vertical-align:middle;margin-right:4px">restore</span>Restore
                         </button>
                     </div>
-                    <input type="file" id="importFileInput" accept=".json" style="display: none;">
+                    <input type="file" id="importFileInput" accept=".json" style="display:none">
                 </div>
             </div>
         </main>
 
-        <button id="fabBtn" class="fab glowing haptic">
-            <span class="material-icons-round icon-spin">add</span>
-        </button>
+        <button id="fabBtn" class="fab glowing haptic"><span class="material-icons-round icon-spin">add</span></button>
 
-        <nav class="bottom-nav glass-panel 5-tabs">
-            <button class="nav-btn active haptic" data-target="view-timeline">
-                <span class="material-icons-round">calendar_view_day</span>
-                <span>Time</span>
-            </button>
-            <button class="nav-btn haptic" data-target="view-projects">
-                <span class="material-icons-round">view_kanban</span>
-                <span>Projects</span>
-            </button>
-            <button class="nav-btn haptic" data-target="view-notes">
-                <span class="material-icons-round">description</span>
-                <span>Notes</span>
-            </button>
-            <button class="nav-btn haptic" data-target="view-finance">
-                <span class="material-icons-round">account_balance_wallet</span>
-                <span>Finance</span>
-            </button>
-            <button class="nav-btn haptic" data-target="view-insight">
-                <span class="material-icons-round">auto_awesome</span>
-                <span>Insight</span>
-            </button>
+        <nav class="bottom-nav glass-panel">
+            <button class="nav-btn active haptic" data-target="view-timeline"><span class="material-icons-round">calendar_view_day</span><span>Time</span></button>
+            <button class="nav-btn haptic" data-target="view-projects"><span class="material-icons-round">view_kanban</span><span>Board</span></button>
+            <button class="nav-btn haptic" data-target="view-notes"><span class="material-icons-round">description</span><span>Notes</span></button>
+            <button class="nav-btn haptic" data-target="view-finance"><span class="material-icons-round">account_balance_wallet</span><span>Finance</span></button>
+            <button class="nav-btn haptic" data-target="view-insight"><span class="material-icons-round">auto_awesome</span><span>Insight</span></button>
         </nav>
 
-        <!-- Modals -->
-        
-        <!-- Add Event Modal -->
+        <!-- ========== MODALS ========== -->
+
+        <!-- Add Event -->
         <div id="addEventSheet" class="bottom-sheet-overlay hidden">
             <div class="bottom-sheet glass-panel">
                 <div class="sheet-indicator"></div>
-                <div class="sheet-header">
-                    <h3>Time Block</h3>
-                    <button class="icon-btn close-sheet-btn haptic"><span class="material-icons-round">close</span></button>
-                </div>
+                <div class="sheet-header"><h3>Time Block</h3><button class="icon-btn close-sheet-btn haptic"><span class="material-icons-round">close</span></button></div>
                 <form id="eventForm" class="sheet-form">
-                    <div class="form-group">
-                        <input type="text" id="eventTitle" placeholder="Deep Work Session..." required>
-                    </div>
-                    <div class="time-inputs row">
+                    <div class="form-group"><input type="text" id="eventTitle" placeholder="Deep Work Session..." required></div>
+                    <div class="row">
                         <div class="form-group half"><label>Start</label><input type="time" id="startTime" required></div>
                         <div class="form-group half"><label>End</label><input type="time" id="endTime" required></div>
                     </div>
-                    <div class="form-group">
-                        <label>Color Tag</label>
-                        <div class="color-picker"></div>
-                    </div>
+                    <div class="form-group"><label>Color Tag</label><div class="color-picker"></div></div>
                     <div class="form-actions">
-                        <button type="button" id="btnFocusEvent" class="btn-focus hidden haptic" title="Start Pomodoro">
-                            <span class="material-icons-round">center_focus_strong</span>
-                        </button>
-                        <button type="button" id="btnDeleteEvent" class="btn-delete hidden haptic">
-                            <span class="material-icons-round">delete</span>
-                        </button>
+                        <button type="button" id="btnFocusEvent" class="btn-focus hidden haptic"><span class="material-icons-round">center_focus_strong</span></button>
+                        <button type="button" id="btnDeleteEvent" class="btn-delete hidden haptic"><span class="material-icons-round">delete</span></button>
                         <button type="submit" class="submit-btn primary glowing haptic">Save Block</button>
                     </div>
                     <input type="hidden" id="editingEventId" value="">
@@ -283,20 +287,15 @@
             </div>
         </div>
 
-        <!-- Add/Edit Kanban Task Modal -->
+        <!-- Add Task -->
         <div id="addTaskSheet" class="bottom-sheet-overlay hidden">
             <div class="bottom-sheet glass-panel">
                 <div class="sheet-indicator"></div>
-                <div class="sheet-header">
-                    <h3 id="taskModalTitle">Kanban Task</h3>
-                    <button class="icon-btn close-sheet-btn haptic"><span class="material-icons-round">close</span></button>
-                </div>
+                <div class="sheet-header"><h3 id="taskModalTitle">Kanban Task</h3><button class="icon-btn close-sheet-btn haptic"><span class="material-icons-round">close</span></button></div>
                 <form id="taskForm" class="sheet-form">
-                    <div class="form-group">
-                        <input type="text" id="taskInputTitle" placeholder="e.g. Design homepage..." required>
-                    </div>
+                    <div class="form-group"><input type="text" id="taskInputTitle" placeholder="e.g. Design homepage..." required></div>
                     <div class="row">
-                        <div class="form-group half" id="taskStatusGroup">
+                        <div class="form-group half">
                             <label>Status</label>
                             <select id="taskInputStatus" class="custom-select">
                                 <option value="todo">To Do 📋</option>
@@ -313,10 +312,16 @@
                             </select>
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label>Auto-Recurrence</label>
+                        <select id="taskInputRecur" class="custom-select">
+                            <option value="none">One-time ✨</option>
+                            <option value="daily">Daily Loop 🔁</option>
+                            <option value="weekly">Weekly (Mon) 📅</option>
+                        </select>
+                    </div>
                     <div class="form-actions">
-                        <button type="button" id="btnFocusTask" class="btn-focus hidden haptic" title="Start Pomodoro">
-                            <span class="material-icons-round">center_focus_strong</span>
-                        </button>
+                        <button type="button" id="btnFocusTask" class="btn-focus hidden haptic"><span class="material-icons-round">center_focus_strong</span></button>
                         <button type="button" id="btnDeleteTask" class="btn-delete hidden haptic"><span class="material-icons-round">delete</span></button>
                         <button type="submit" class="submit-btn primary glowing haptic">Save Task</button>
                     </div>
@@ -325,17 +330,16 @@
             </div>
         </div>
 
-        <!-- Add/Edit Habit Modal -->
+        <!-- Add Habit -->
         <div id="addHabitSheet" class="bottom-sheet-overlay hidden">
             <div class="bottom-sheet glass-panel">
                 <div class="sheet-indicator"></div>
-                <div class="sheet-header">
-                    <h3 id="habitModalTitle">Daily Habit</h3>
-                    <button class="icon-btn close-sheet-btn haptic"><span class="material-icons-round">close</span></button>
-                </div>
+                <div class="sheet-header"><h3 id="habitModalTitle">Daily Habit</h3><button class="icon-btn close-sheet-btn haptic"><span class="material-icons-round">close</span></button></div>
                 <form id="habitForm" class="sheet-form">
+                    <div class="form-group"><input type="text" id="habitInputTitle" placeholder="e.g. Drink 2L Water 💧" required></div>
                     <div class="form-group">
-                        <input type="text" id="habitInputTitle" placeholder="e.g. Drink 2L Water" required>
+                        <label>Icon (Emoji)</label>
+                        <input type="text" id="habitInputEmoji" placeholder="💪" maxlength="2">
                     </div>
                     <div class="form-actions">
                         <button type="button" id="btnDeleteHabit" class="btn-delete hidden haptic"><span class="material-icons-round">delete</span></button>
@@ -346,22 +350,19 @@
             </div>
         </div>
 
-        <!-- Add/Edit Note Modal -->
+        <!-- Add Note -->
         <div id="addNoteSheet" class="bottom-sheet-overlay hidden">
-            <div class="bottom-sheet glass-panel" style="max-height: 90vh;">
+            <div class="bottom-sheet glass-panel" style="max-height:90vh">
                 <div class="sheet-indicator"></div>
-                <div class="sheet-header">
-                    <h3 id="noteModalTitle">Brain Dump</h3>
-                    <button class="icon-btn close-sheet-btn haptic"><span class="material-icons-round">close</span></button>
-                </div>
+                <div class="sheet-header"><h3 id="noteModalTitle">Brain Dump</h3><button class="icon-btn close-sheet-btn haptic"><span class="material-icons-round">close</span></button></div>
                 <form id="noteForm" class="sheet-form">
+                    <div class="form-group"><input type="text" id="noteInputTitle" placeholder="Idea Title..." required style="font-size:1.2rem;font-weight:700"></div>
                     <div class="form-group">
-                        <input type="text" id="noteInputTitle" placeholder="Idea Title..." required style="font-size: 1.2rem; font-weight: 700;">
+                        <label>Tags (comma separated)</label>
+                        <input type="text" id="noteInputTags" placeholder="idea, work, personal">
                     </div>
-                    <div class="form-group">
-                        <textarea id="noteInputContent" placeholder="Start typing... You can write as long as you want." rows="12" class="gratitude-box" style="resize:vertical;"></textarea>
-                    </div>
-                    <div class="form-actions" style="margin-top: 16px;">
+                    <div class="form-group"><textarea id="noteInputContent" placeholder="Write anything..." rows="10" class="gratitude-box" style="resize:vertical"></textarea></div>
+                    <div class="form-actions">
                         <button type="button" id="btnDeleteNote" class="btn-delete hidden haptic"><span class="material-icons-round">delete</span></button>
                         <button type="submit" class="submit-btn primary glowing haptic">Save to Brain</button>
                     </div>
@@ -370,14 +371,11 @@
             </div>
         </div>
 
-        <!-- Add Transaction Modal -->
+        <!-- Add Finance -->
         <div id="addFinanceSheet" class="bottom-sheet-overlay hidden">
             <div class="bottom-sheet glass-panel">
                 <div class="sheet-indicator"></div>
-                <div class="sheet-header">
-                    <h3>New Transaction</h3>
-                    <button class="icon-btn close-sheet-btn haptic"><span class="material-icons-round">close</span></button>
-                </div>
+                <div class="sheet-header"><h3>Transaction</h3><button class="icon-btn close-sheet-btn haptic"><span class="material-icons-round">close</span></button></div>
                 <form id="financeForm" class="sheet-form">
                     <div class="finance-type-toggle">
                         <button type="button" class="ft-btn active" data-type="EXPENSE">Expense</button>
@@ -391,6 +389,19 @@
                         <label>Description</label>
                         <input type="text" id="finDesc" placeholder="e.g. Coffee, Salary..." required>
                     </div>
+                    <div class="form-group">
+                        <label>Category</label>
+                        <select id="finCategory" class="custom-select">
+                            <option value="food">🍜 Food</option>
+                            <option value="transport">🚌 Transport</option>
+                            <option value="shopping">🛍️ Shopping</option>
+                            <option value="health">❤️ Health</option>
+                            <option value="entertainment">🎮 Entertainment</option>
+                            <option value="bills">💡 Bills</option>
+                            <option value="salary">💼 Salary</option>
+                            <option value="other">📦 Other</option>
+                        </select>
+                    </div>
                     <div class="form-actions">
                         <button type="button" id="btnDeleteFin" class="btn-delete hidden haptic"><span class="material-icons-round">delete</span></button>
                         <button type="submit" class="submit-btn primary glowing haptic">Save Record</button>
@@ -401,79 +412,114 @@
             </div>
         </div>
 
-        <!-- Reward Shop Modal (Phase 6) -->
-        <div id="shopSheet" class="bottom-sheet-overlay hidden">
-            <div class="bottom-sheet glass-panel" style="max-height: 90vh;">
+        <!-- Add Subscription -->
+        <div id="addSubSheet" class="bottom-sheet-overlay hidden">
+            <div class="bottom-sheet glass-panel">
                 <div class="sheet-indicator"></div>
-                <div class="sheet-header">
-                    <h3>Reward Shop 🛍️</h3>
-                    <button class="icon-btn close-sheet-btn haptic"><span class="material-icons-round">close</span></button>
-                </div>
-                <div class="shop-balance text-center mb-sm">
-                    <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform:uppercase; letter-spacing:1px;">Your Balance</span>
-                    <div style="font-size: 3rem; font-weight: 800; color: #F59E0B; line-height: 1; text-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);">🪙 <span id="shopCoinText">0</span></div>
-                </div>
-                <p style="font-size:0.8rem; text-align:center; color:var(--text-secondary); margin-bottom:16px;">Spend your hard-earned coins to treat yourself!</p>
-                
-                <div class="shop-grid" id="rewardGrid" style="margin-bottom: 24px; max-height: 300px; overflow-y: auto;">
-                    <!-- Rewards JS -->
-                </div>
-                
-                <hr style="border: none; height: 1px; background: rgba(255,255,255,0.1); margin-bottom: 24px;">
-                <form id="rewardForm" class="sheet-form">
-                    <h4 style="margin-bottom: 12px;">Create Custom Reward</h4>
+                <div class="sheet-header"><h3>Fixed Bill 💳</h3><button class="icon-btn close-sheet-btn haptic"><span class="material-icons-round">close</span></button></div>
+                <form id="subForm" class="sheet-form">
+                    <div class="form-group"><input type="text" id="subInputName" placeholder="e.g. Netflix, Gym..." required></div>
                     <div class="row">
-                        <div class="form-group" style="flex:2;">
-                            <input type="text" id="rewardInputName" placeholder="e.g. Eat Shabu 🍲" required>
+                        <div class="form-group half amount-group">
+                            <span class="currency-symbol">฿</span>
+                            <input type="number" id="subInputAmount" placeholder="0.00" min="0" required>
                         </div>
-                        <div class="form-group" style="flex:1;">
-                            <input type="number" id="rewardInputCost" placeholder="Cost" min="1" required>
+                        <div class="form-group half">
+                            <label>Billing Day (1-31)</label>
+                            <input type="number" id="subInputDay" placeholder="1" min="1" max="31" required>
                         </div>
                     </div>
-                    <div class="form-actions" style="margin-top: 0;">
-                        <button type="submit" class="submit-btn primary glowing haptic">Add to Shop</button>
+                    <div class="form-actions">
+                        <button type="button" id="btnDeleteSub" class="btn-delete hidden haptic"><span class="material-icons-round">delete</span></button>
+                        <button type="submit" class="submit-btn primary glowing haptic">Save Bill</button>
+                    </div>
+                    <input type="hidden" id="editingSubId" value="">
+                </form>
+            </div>
+        </div>
+
+        <!-- Budget Modal -->
+        <div id="budgetSheet" class="bottom-sheet-overlay hidden">
+            <div class="bottom-sheet glass-panel">
+                <div class="sheet-indicator"></div>
+                <div class="sheet-header"><h3>Set Monthly Budget 💰</h3><button class="icon-btn close-sheet-btn haptic"><span class="material-icons-round">close</span></button></div>
+                <form id="budgetForm" class="sheet-form">
+                    <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:16px">Alert when spending exceeds 85% of limit.</p>
+                    <div class="form-group amount-group">
+                        <span class="currency-symbol">฿</span>
+                        <input type="number" id="budgetInputAmount" placeholder="15000" min="0" required>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="submit-btn primary glowing haptic">Save Limit</button>
                     </div>
                 </form>
             </div>
         </div>
-        
-    </div>
 
-    <!-- FULL SCREEN POMODORO (Focus Mode) -->
+        <!-- Reward Shop -->
+        <div id="shopSheet" class="bottom-sheet-overlay hidden">
+            <div class="bottom-sheet glass-panel" style="max-height:90vh;display:flex;flex-direction:column">
+                <div class="sheet-indicator"></div>
+                <div class="sheet-header" style="flex-shrink:0">
+                    <h3>Reward Shop 🛍️</h3>
+                    <div style="font-size:1.4rem;font-weight:800;color:#F59E0B;margin-left:auto">🪙 <span id="shopCoinText">0</span></div>
+                    <button class="icon-btn close-sheet-btn haptic" style="margin-left:12px"><span class="material-icons-round">close</span></button>
+                </div>
+                <div class="ft-tabs" style="margin:0 24px 16px 24px;flex-shrink:0">
+                    <button type="button" class="ft-btn active" id="tabShopRewards" style="flex:1">Rewards</button>
+                    <button type="button" class="ft-btn" id="tabShopThemes" style="flex:1">Themes</button>
+                </div>
+                <div style="overflow-y:auto;padding:0 24px 32px 24px;flex:1">
+                    <div id="shopContentRewards">
+                        <div id="rewardGrid" class="shop-grid" style="margin-bottom:24px"></div>
+                        <hr style="border:none;height:1px;background:rgba(255,255,255,0.1);margin-bottom:20px">
+                        <h4 style="margin-bottom:12px">Create Custom Reward</h4>
+                        <form id="rewardForm" class="sheet-form" style="padding:0">
+                            <div class="row">
+                                <div class="form-group" style="flex:2"><input type="text" id="rewardInputName" placeholder="e.g. Eat Shabu 🍲" required></div>
+                                <div class="form-group" style="flex:1"><input type="number" id="rewardInputCost" placeholder="Cost" min="1" required></div>
+                            </div>
+                            <div class="form-actions" style="margin-top:0"><button type="submit" class="submit-btn primary glowing haptic">Add to Shop</button></div>
+                        </form>
+                    </div>
+                    <div id="shopContentThemes" class="hidden">
+                        <div id="themeGrid" class="shop-grid"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- end .app-container -->
+
+    <!-- Full Screen Pomodoro Focus -->
     <div id="focusOverlay" class="focus-overlay hidden">
         <div class="mesh-bg">
-            <div class="mesh-blob blob-1" style="animation-duration: 30s;"></div>
+            <div class="mesh-blob blob-1" style="animation-duration:30s"></div>
             <div class="mesh-overlay"></div>
         </div>
-        
         <div class="focus-content">
-            <button class="icon-btn" id="btnExitFocus" style="position: absolute; top: 40px; left: 24px;">
-                <span class="material-icons-round">close</span>
-            </button>
+            <button class="icon-btn" id="btnExitFocus" style="position:absolute;top:40px;left:24px"><span class="material-icons-round">close</span></button>
             <h2 id="focusTaskName" class="focus-task-name">Deep Work</h2>
             <div class="focus-phase" id="focusPhaseText">Time to focus</div>
-
             <div class="ambient-controls" id="ambientDeck">
-                <button class="ambient-btn haptic" data-sound="rain" title="Heavy Rain">🌧️</button>
-                <button class="ambient-btn haptic" data-sound="forest" title="Bonfire Nature">🔥</button>
-                <button class="ambient-btn haptic" data-sound="cafe" title="Battle Cafe">☕</button>
+                <button class="ambient-btn haptic" data-sound="rain" title="Rain">🌧️</button>
+                <button class="ambient-btn haptic" data-sound="forest" title="Forest">🌿</button>
+                <button class="ambient-btn haptic" data-sound="cafe" title="Cafe">☕</button>
             </div>
-
             <div class="pomodoro-wrap">
                 <svg class="pomodoro-svg" viewBox="0 0 200 200">
-                    <circle class="pomodoro-bg" cx="100" cy="100" r="90"></circle>
-                    <circle class="pomodoro-progress" id="pomodoroProgress" cx="100" cy="100" r="90"></circle>
+                    <circle class="pomodoro-bg" cx="100" cy="100" r="90"/>
+                    <circle class="pomodoro-progress" id="pomodoroProgress" cx="100" cy="100" r="90"/>
                 </svg>
                 <div class="pomodoro-time" id="pomodoroTimeText">25:00</div>
             </div>
             <div class="focus-controls">
-                <button class="focus-btn-play pause glowing" id="btnToggleFocus">
-                    <span class="material-icons-round" id="focusPlayIcon">pause</span>
-                </button>
+                <button class="focus-btn-play pause glowing" id="btnToggleFocus"><span class="material-icons-round" id="focusPlayIcon">pause</span></button>
             </div>
+            <div id="strictPenaltyWarning" style="display:none;position:absolute;bottom:40px;left:50%;transform:translateX(-50%);background:rgba(239,68,68,0.15);border:1px solid #EF4444;border-radius:12px;padding:10px 20px;font-size:0.85rem;color:#EF4444;text-align:center;white-space:nowrap">⚠️ Exit now = -50 XP penalty!</div>
         </div>
     </div>
-    
+
     <script src="app.js"></script>
 </body>
 </html>
